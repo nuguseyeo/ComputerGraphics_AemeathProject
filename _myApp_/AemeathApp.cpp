@@ -24,6 +24,22 @@ static float CharacterFirstPersonYawFromCamera(float cameraYawDegrees) {
     return CharacterBackYawFromCamera(cameraYawDegrees);
 }
 
+static float CharacterYawFromMovementInput(float cameraYawDegrees, float localRight, float localForward, bool lateralFollowsCameraOrbit) {
+    const float backYaw = CharacterBackYawFromCamera(cameraYawDegrees);
+
+    if (localForward < 0.0f) {
+        return NormalizeDegrees(backYaw + 180.0f);
+    }
+    if (localForward == 0.0f && localRight < 0.0f && !lateralFollowsCameraOrbit) {
+        return NormalizeDegrees(backYaw + 90.0f);
+    }
+    if (localForward == 0.0f && localRight > 0.0f && !lateralFollowsCameraOrbit) {
+        return NormalizeDegrees(backYaw - 90.0f);
+    }
+
+    return backYaw;
+}
+
 void AemeathApp::startup() {
     AllocConsole();
     FILE* fp;
@@ -70,6 +86,7 @@ void AemeathApp::render(double currentTime) {
     if (deltaTime > 1.0 / 30.0) {
         deltaTime = 1.0 / 30.0;
     }
+    cameraOrbitFollowTimer = std::max(0.0f, cameraOrbitFollowTimer - static_cast<float>(deltaTime));
 
     // Build movement from keyboard input relative to the camera direction.
     float localRight = 0.0f;
@@ -112,7 +129,10 @@ void AemeathApp::render(double currentTime) {
         Aemeath.rotateToward(CharacterFirstPersonYawFromCamera(camera.yawDegrees), deltaTime);
     }
     else if (hasMovementInput || Aemeath.getIsDashing()) {
-        Aemeath.rotateToward(CharacterBackYawFromCamera(camera.yawDegrees), deltaTime);
+        const float targetYaw = hasMovementInput
+            ? CharacterYawFromMovementInput(camera.yawDegrees, localRight, localForward, cameraOrbitFollowTimer > 0.0f)
+            : CharacterBackYawFromCamera(camera.yawDegrees);
+        Aemeath.rotateToward(targetYaw, deltaTime);
     }
     Aemeath.updatePhysics(deltaTime);
     if (Aemeath.getY() > 0.0f || Aemeath.getIsDashing()) {
@@ -172,7 +192,10 @@ void AemeathApp::onKey(int key, int action) {
             float dashX = cameraRight[0] * localRight + cameraForward[0] * localForward;
             float dashZ = cameraRight[2] * localRight + cameraForward[2] * localForward;
             if (localRight != 0.0f || localForward != 0.0f) {
-                Aemeath.rotateToward(viewMode == CameraViewMode::FirstPerson ? CharacterFirstPersonYawFromCamera(camera.yawDegrees) : CharacterBackYawFromCamera(camera.yawDegrees), 1.0 / 60.0);
+                const float targetYaw = viewMode == CameraViewMode::FirstPerson
+                    ? CharacterFirstPersonYawFromCamera(camera.yawDegrees)
+                    : CharacterYawFromMovementInput(camera.yawDegrees, localRight, localForward, cameraOrbitFollowTimer > 0.0f);
+                Aemeath.rotateToward(targetYaw, 1.0 / 60.0);
             }
             Aemeath.dash(dashX, dashZ);
             break;
@@ -207,6 +230,9 @@ void AemeathApp::onMouseMove(int x, int y) {
 
     const float mouseSensitivity = 0.06f;
     camera.applyMouseDelta(deltaX, deltaY, mouseSensitivity);
+    if (deltaX != 0 || deltaY != 0) {
+        cameraOrbitFollowTimer = 0.18f;
+    }
     if (viewMode == CameraViewMode::FirstPerson) {
         camera.pitchDegrees = std::max(-58.0f, std::min(55.0f, camera.pitchDegrees));
     }

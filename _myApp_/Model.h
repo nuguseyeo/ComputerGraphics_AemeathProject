@@ -43,12 +43,14 @@ public:
     float opacity;
     bool hasDiffuseTexture;
     bool hasAlphaTexture;
-    bool flipTextureV;
+    bool usesDiffuseAlpha;
+    bool flipDiffuseTextureV;
+    bool flipAlphaTextureV;
     bool drawBackFacesFirst;
     bool alphaCutout;
 
     Mesh(std::vector<Vertex> vertices, std::vector<GLuint> indices, std::vector<Texture> textures,
-         vmath::vec3 diffuseColor, float opacity, bool flipTextureV, bool drawBackFacesFirst, bool alphaCutout);
+         vmath::vec3 diffuseColor, float opacity, bool usesDiffuseAlpha, bool flipDiffuseTextureV, bool flipAlphaTextureV, bool drawBackFacesFirst, bool alphaCutout);
     void draw(GLuint shaderProgram);
     bool isTransparent() const;
 

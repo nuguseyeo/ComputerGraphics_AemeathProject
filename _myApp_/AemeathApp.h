@@ -61,6 +61,7 @@ private:
     ThirdPersonCamera camera;
     CharacterControlState controlState = CharacterControlState::Idle;
     CameraViewMode viewMode = CameraViewMode::ThirdPerson;
+    float cameraOrbitFollowTimer = 0.0f;
 
 public:
     void startup() override;

@@ -127,7 +127,33 @@ static std::string ResolveTexturePath(const std::string& texturePath, const std:
 }
 
 static bool IsTextureVFlipTarget(const Texture& texture) {
-    return false;
+    std::string path = texture.path;
+    for (char& c : path) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return path.find("_dal") != std::string::npos ||
+        path.find(" alpha") != std::string::npos ||
+        path.find("_alpha") != std::string::npos ||
+        path.find("aonmpb/") != std::string::npos;
+}
+
+static bool IsDiffuseAlphaTexture(const Texture& texture) {
+    std::string path = texture.path;
+    for (char& c : path) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return path.find("_dal") != std::string::npos ||
+        path.find("_alpha") != std::string::npos ||
+        path.find(" alpha") != std::string::npos;
+}
+
+static bool IsBinaryAlphaCutoutTexture(const Texture& texture) {
+    std::string path = texture.path;
+    for (char& c : path) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return path.find("up02_dal") != std::string::npos ||
+        path.find("down02_dal") != std::string::npos;
 }
 
 static GLuint CreateFallbackTexture(const std::string& label) {
@@ -367,8 +393,6 @@ static std::string GuessTextureFromMaterialName(const std::string& materialName,
         if (lower.find("eye") != std::string::npos) candidates.push_back(alphaTexture ? "" : "tex/T_R2T1AimisiMd10011Eye_D.png");
         if (lower.find("hair") != std::string::npos || lower.find("bang") != std::string::npos) candidates.push_back(alphaTexture ? "tex/T_R2T1AimisiMd10011Hair_D.png" : "tex/T_R2T1AimisiMd10011Hair_D.png");
         if (lower.find("face") != std::string::npos || lower.find("cheek") != std::string::npos) candidates.push_back(alphaTexture ? "" : "tex/T_R2T1AimisiMd10011Face_D.png");
-        if (lower.find("up") != std::string::npos || lower.find("body") != std::string::npos) candidates.push_back(alphaTexture ? "tex/T_R2T1AimisiMd10011Up02_Dal.png" : "tex/T_R2T1AimisiMd10011Up01_D.png");
-        if (lower.find("down") != std::string::npos || lower.find("leg") != std::string::npos || lower.find("boot") != std::string::npos) candidates.push_back(alphaTexture ? "tex/T_R2T1AimisiMd10011Down02_Dal.png" : "tex/T_R2T1AimisiMd10011Down01_D.png");
         if (lower.find("item") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiMd10011Item_D alpha.png" : "tex/T_R2T1AimisiMd10011Item_D.png");
     }
 
@@ -408,13 +432,15 @@ static bool IsRelevantBoneName(const std::string& name) {
 }
 
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<GLuint> indices, std::vector<Texture> textures,
-           vmath::vec3 diffuseColor, float opacity, bool flipTextureV, bool drawBackFacesFirst, bool alphaCutout) {
+           vmath::vec3 diffuseColor, float opacity, bool usesDiffuseAlpha, bool flipDiffuseTextureV, bool flipAlphaTextureV, bool drawBackFacesFirst, bool alphaCutout) {
     this->vertices = vertices;
     this->indices = indices;
     this->textures = textures;
     this->diffuseColor = diffuseColor;
     this->opacity = opacity;
-    this->flipTextureV = flipTextureV;
+    this->usesDiffuseAlpha = usesDiffuseAlpha;
+    this->flipDiffuseTextureV = flipDiffuseTextureV;
+    this->flipAlphaTextureV = flipAlphaTextureV;
     this->drawBackFacesFirst = drawBackFacesFirst;
     this->alphaCutout = alphaCutout;
     this->hasDiffuseTexture = false;
@@ -458,7 +484,8 @@ void Mesh::draw(GLuint shaderProgram) {
     glUniform1f(glGetUniformLocation(shaderProgram, "materialOpacity"), opacity);
     glUniform1i(glGetUniformLocation(shaderProgram, "useDiffuseTexture"), hasDiffuseTexture ? 1 : 0);
     glUniform1i(glGetUniformLocation(shaderProgram, "useAlphaTexture"), hasAlphaTexture ? 1 : 0);
-    glUniform1i(glGetUniformLocation(shaderProgram, "flipTextureV"), flipTextureV ? 1 : 0);
+    glUniform1i(glGetUniformLocation(shaderProgram, "flipDiffuseTextureV"), flipDiffuseTextureV ? 1 : 0);
+    glUniform1i(glGetUniformLocation(shaderProgram, "flipAlphaTextureV"), flipAlphaTextureV ? 1 : 0);
 
     for (unsigned int i = 0; i < textures.size(); i++) {
         if (textures[i].type == "texture_diffuse") {
@@ -503,7 +530,7 @@ void Mesh::draw(GLuint shaderProgram) {
 }
 
 bool Mesh::isTransparent() const {
-    return !alphaCutout && (hasAlphaTexture || opacity < 0.999f);
+    return !alphaCutout && (usesDiffuseAlpha || hasAlphaTexture || opacity < 0.999f);
 }
 
 void Model::init(const std::string& objFilePath, const std::string& vsPath, const std::string& fsPath) {
@@ -602,6 +629,8 @@ void Model::draw(float currentTime, float aspect, const vmath::vec3& characterPo
 
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 
     if (drawCharacterMesh) {
         for (unsigned int i = 0; i < meshes.size(); i++) {
@@ -609,6 +638,7 @@ void Model::draw(float currentTime, float aspect, const vmath::vec3& characterPo
         }
     }
 
+    glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
@@ -746,7 +776,9 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
 
     vmath::vec3 diffuseColor = vmath::vec3(1.0f, 1.0f, 1.0f);
     float opacity = 1.0f;
-    bool flipTextureV = false;
+    bool usesDiffuseAlpha = false;
+    bool flipDiffuseTextureV = false;
+    bool flipAlphaTextureV = false;
     bool drawBackFacesFirst = false;
     bool alphaCutout = false;
 
@@ -784,19 +816,25 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
         }
 
         for (const Texture& texture : diffuseMaps) {
-            if (texture.path.find("_Dal") != std::string::npos) {
-                opacity = 0.5f;
-                break;
+            if (IsDiffuseAlphaTexture(texture)) {
+                usesDiffuseAlpha = true;
+                drawBackFacesFirst = true;
             }
+            if (IsBinaryAlphaCutoutTexture(texture)) {
+                alphaCutout = true;
+            }
+        }
+        if (usesDiffuseAlpha) {
+            opacity = 1.0f;
         }
 
         if (!alphaMaps.empty()) {
             opacity = 1.0f;
         }
         if (!alphaMaps.empty()) {
-            for (const Texture& texture : textures) {
+            for (const Texture& texture : alphaMaps) {
                 if (IsTextureVFlipTarget(texture)) {
-                    flipTextureV = true;
+                    flipAlphaTextureV = true;
                     drawBackFacesFirst = true;
                     break;
                 }
@@ -804,7 +842,7 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
         }
     }
 
-    return Mesh(vertices, indices, textures, diffuseColor, opacity, flipTextureV, drawBackFacesFirst, alphaCutout);
+    return Mesh(vertices, indices, textures, diffuseColor, opacity, usesDiffuseAlpha, flipDiffuseTextureV, flipAlphaTextureV, drawBackFacesFirst, alphaCutout);
 }
 
 void Model::processSkeletonData(const aiScene* scene) {
@@ -971,7 +1009,8 @@ void Model::drawFloor(GLuint shaderProgram) {
     glUniform1f(glGetUniformLocation(shaderProgram, "materialOpacity"), 1.0f);
     glUniform1i(glGetUniformLocation(shaderProgram, "useDiffuseTexture"), 1);
     glUniform1i(glGetUniformLocation(shaderProgram, "useAlphaTexture"), 0);
-    glUniform1i(glGetUniformLocation(shaderProgram, "flipTextureV"), 0);
+    glUniform1i(glGetUniformLocation(shaderProgram, "flipDiffuseTextureV"), 0);
+    glUniform1i(glGetUniformLocation(shaderProgram, "flipAlphaTextureV"), 0);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, floorTexture);

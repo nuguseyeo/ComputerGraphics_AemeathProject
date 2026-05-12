@@ -11,7 +11,8 @@ uniform vec3 materialDiffuse;
 uniform float materialOpacity;
 uniform bool useDiffuseTexture;
 uniform bool useAlphaTexture;
-uniform bool flipTextureV;
+uniform bool flipDiffuseTextureV;
+uniform bool flipAlphaTextureV;
 
 uniform vec3 lightPos;
 uniform vec3 viewPos;
@@ -28,14 +29,15 @@ void main()
         discard;
     }
 
-    vec2 sampleUV = flipTextureV ? vec2(TexCoords.x, 1.0 - TexCoords.y) : TexCoords;
+    vec2 diffuseUV = flipDiffuseTextureV ? vec2(TexCoords.x, 1.0 - TexCoords.y) : TexCoords;
+    vec2 alphaUV = flipAlphaTextureV ? vec2(TexCoords.x, 1.0 - TexCoords.y) : TexCoords;
     vec4 baseColor = vec4(materialDiffuse, materialOpacity);
 
     if (useDiffuseTexture) {
-        baseColor *= texture(texture_diffuse1, sampleUV);
+        baseColor *= texture(texture_diffuse1, diffuseUV);
     }
     if (useAlphaTexture) {
-        vec4 alphaMask = texture(texture_alpha1, sampleUV);
+        vec4 alphaMask = texture(texture_alpha1, alphaUV);
         baseColor.a *= min(alphaMask.r, alphaMask.a);
     }
 
