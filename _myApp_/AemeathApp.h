@@ -19,12 +19,12 @@ enum class CameraViewMode {
 
 struct ThirdPersonCamera {
     float yawDegrees = 0.0f;
-    float pitchDegrees = 18.0f;
-    float distance = 22.0f;
+    float pitchDegrees = 14.0f;
+    float distance = 28.6f;
     const float minDistance = 10.0f;
     const float maxDistance = 36.0f;
-    const float minPitch = -72.0f;
-    const float maxPitch = 65.0f;
+    const float minPitch = -86.4f;
+    const float maxPitch = 39.0f;
 
     void applyMouseDelta(int deltaX, int deltaY, float sensitivity) {
         yawDegrees = std::fmod(yawDegrees + deltaX * sensitivity, 360.0f);
@@ -35,7 +35,7 @@ struct ThirdPersonCamera {
     }
 
     void applyWheel(int wheelDelta) {
-        distance = std::max(minDistance, std::min(maxDistance, distance - wheelDelta * 1.5f));
+        distance = std::max(minDistance, std::min(maxDistance, distance - wheelDelta * 0.65f));
     }
 
     vmath::vec3 forwardXZ() const {

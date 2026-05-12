@@ -54,14 +54,14 @@ void AemeathApp::startup() {
     char exePath[MAX_PATH] = {};
     GetModuleFileNameA(nullptr, exePath, MAX_PATH);
     char title[256] = {};
-    std::snprintf(title, sizeof(title), "AemeathProject_Graphics_Ver1 | FBXTextureSkeleton v2026-05-12 01:10");
+    std::snprintf(title, sizeof(title), "AemeathProject_Graphics_Ver1 | PMXTextureStable v2026-05-13");
     setWindowTitle(title);
     std::printf("[Runtime] %s\n", title);
     std::printf("[Runtime EXE] %s\n", exePath);
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    humanModel.init("../forModel/Aemeath_HumanForm/Aemeath(human).fbx", "Model_vs.glsl", "Model_fs.glsl");
-    mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_MechForm.fbx", "Model_vs.glsl", "Model_fs.glsl");
+    humanModel.init("../forModel/Aemeath_HumanForm/Aemeath_source.pmx", "Model_vs.glsl", "Model_fs.glsl");
+    mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_mecha_source.pmx", "Model_vs.glsl", "Model_fs.glsl");
 }
 
 void AemeathApp::render(double currentTime) {
@@ -228,7 +228,7 @@ void AemeathApp::onMouseMove(int x, int y) {
     lastMouseX = x;
     lastMouseY = y;
 
-    const float mouseSensitivity = 0.06f;
+    const float mouseSensitivity = 0.035f;
     camera.applyMouseDelta(deltaX, deltaY, mouseSensitivity);
     if (deltaX != 0 || deltaY != 0) {
         cameraOrbitFollowTimer = 0.18f;
