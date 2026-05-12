@@ -10,21 +10,30 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-// 1. 버텍스 구조체
 struct Vertex {
     vmath::vec3 position;
     vmath::vec2 texCoord;
     vmath::vec3 normal;
 };
 
-// 2. 텍스처 구조체 (Assimp에서 읽어온 텍스처 정보 저장)
 struct Texture {
     GLuint id;
     std::string type;
     std::string path;
 };
 
-// 3. 개별 파트(머리카락, 얼굴 등)를 담당할 Mesh 클래스
+struct Bounds3 {
+    vmath::vec3 min;
+    vmath::vec3 max;
+    bool valid = false;
+};
+
+struct BoneData {
+    std::string name;
+    int sourceIndex;
+    vmath::mat4 offsetMatrix;
+};
+
 class Mesh {
 public:
     std::vector<Vertex> vertices;
@@ -48,12 +57,12 @@ private:
     void setupMesh();
 };
 
-// 4. 전체 모델을 관리할 Model 클래스
 class Model {
 public:
-    std::vector<Texture> textures_loaded; // 이미 로드된 텍스처 캐싱 (중복 로드 방지)
+    std::vector<Texture> textures_loaded;
     std::vector<Mesh> meshes;
-    std::string directory; // 모델 파일이 있는 디렉토리 경로
+    std::vector<BoneData> relevantBones;
+    std::string directory;
     GLuint shaderProgram;
     GLuint floorVAO = 0, floorVBO = 0, floorEBO = 0;
     GLuint floorTexture = 0;
@@ -61,17 +70,23 @@ public:
     float modelMinY = 0.0f;
     float modelMaxY = 0.0f;
     bool hasModelBounds = false;
+    int upAxis = 1;
+    float importScale = 1.0f;
+    float importGroundOffset = 0.0f;
 
     void init(const std::string& objFilePath, const std::string& vsPath, const std::string& fsPath);
-
-    // 시간(회전용)과 화면 비율(원근투영용)을 매개변수로 받도록 수정
     void draw(float currentTime, float aspect, const vmath::vec3& characterPosition, float characterYawDegrees, float cameraYawDegrees, float cameraPitchDegrees, float cameraDistance, bool firstPersonCamera);
 
 private:
     void loadModel(const std::string& path);
     void processNode(aiNode* node, const aiScene* scene);
     Mesh processMesh(aiMesh* mesh, const aiScene* scene);
-    std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName);
+    void configureImportTransform(const aiScene* scene);
+    vmath::vec3 transformImportedPosition(const aiVector3D& position) const;
+    vmath::vec3 transformImportedNormal(const aiVector3D& normal) const;
+    void processSkeletonData(const aiScene* scene);
+    std::vector<Texture> loadFallbackMaterialTextures(aiMaterial* mat, std::string typeName);
+    std::vector<Texture> loadMaterialTextures(aiMaterial* mat, const aiScene* scene, aiTextureType type, std::string typeName);
     void setupFloor();
     void drawFloor(GLuint shaderProgram);
 };

@@ -2,7 +2,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
+#include <cstring>
+#include <fstream>
+#include <map>
+#include <sstream>
 #include <windows.h>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -54,6 +59,15 @@ static std::string NormalizeTexturePath(const char* path) {
     return filename;
 }
 
+static std::string BaseName(const std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    return (pos != std::string::npos) ? path.substr(pos + 1) : path;
+}
+
+static bool IsAbsolutePath(const std::string& path) {
+    return path.size() >= 3 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':' && (path[2] == '/' || path[2] == '\\');
+}
+
 static bool ToWidePath(const std::string& src, UINT codePage, std::wstring& dst) {
     int len = MultiByteToWideChar(codePage, 0, src.c_str(), -1, nullptr, 0);
     if (len <= 0) return false;
@@ -77,13 +91,120 @@ static FILE* OpenTextureFile(const std::string& filename) {
     return file;
 }
 
+static bool FileExistsForTexture(const std::string& filename) {
+    FILE* file = OpenTextureFile(filename);
+    if (!file) return false;
+    fclose(file);
+    return true;
+}
+
+static std::string ResolveTexturePath(const std::string& texturePath, const std::string& directory) {
+    std::string normalizedPath = NormalizeTexturePath(texturePath.c_str());
+    std::vector<std::string> candidates;
+    const std::string nameOnly = BaseName(normalizedPath);
+
+    if (IsAbsolutePath(normalizedPath)) {
+        candidates.push_back(normalizedPath);
+    }
+    else {
+        candidates.push_back(directory + "/" + normalizedPath);
+    }
+
+    if (!nameOnly.empty()) {
+        candidates.push_back(directory + "/" + nameOnly);
+        candidates.push_back(directory + "/tex/" + nameOnly);
+        candidates.push_back(directory + "/TEX/" + nameOnly);
+        candidates.push_back(directory + "/AONMPB/" + nameOnly);
+    }
+
+    for (const std::string& candidate : candidates) {
+        if (FileExistsForTexture(candidate)) {
+            return candidate;
+        }
+    }
+
+    return candidates.empty() ? normalizedPath : candidates.front();
+}
+
 static bool IsTextureVFlipTarget(const Texture& texture) {
     return false;
 }
 
+static GLuint CreateFallbackTexture(const std::string& label) {
+    GLuint textureID = 0;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    unsigned char magenta[] = { 255, 0, 255, 255 };
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, magenta);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    std::cerr << " -> fallback texture: " << label << std::endl;
+    return textureID;
+}
+
+static GLuint TextureFromMemory(const aiTexture* embeddedTexture, const std::string& label) {
+    if (!embeddedTexture) {
+        return CreateFallbackTexture(label);
+    }
+
+    GLuint textureID = 0;
+    glGenTextures(1, &textureID);
+
+    int width = 0;
+    int height = 0;
+    int nrComponents = 0;
+    unsigned char* data = nullptr;
+
+    if (embeddedTexture->mHeight == 0) {
+        data = stbi_load_from_memory(reinterpret_cast<unsigned char*>(embeddedTexture->pcData),
+            static_cast<int>(embeddedTexture->mWidth), &width, &height, &nrComponents, 0);
+    }
+    else {
+        width = static_cast<int>(embeddedTexture->mWidth);
+        height = static_cast<int>(embeddedTexture->mHeight);
+        nrComponents = 4;
+    }
+
+    if (embeddedTexture->mHeight == 0 && !data) {
+        glDeleteTextures(1, &textureID);
+        return CreateFallbackTexture(label);
+    }
+
+    GLenum format = (nrComponents == 4) ? GL_RGBA : GL_RGB;
+    GLenum internalFormat = (nrComponents == 4) ? GL_RGBA8 : GL_RGB8;
+
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (embeddedTexture->mHeight == 0) {
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        stbi_image_free(data);
+    }
+    else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, embeddedTexture->pcData);
+    }
+    glGenerateMipmap(GL_TEXTURE_2D);
+    ApplyTextureQualitySettings();
+
+    std::cout << "[Embedded texture load] " << label << " -> success (" << width << "x" << height << ")" << std::endl;
+    return textureID;
+}
+
+static const aiTexture* FindEmbeddedTexture(const aiScene* scene, const std::string& texturePath) {
+    if (!scene || scene->mNumTextures == 0 || texturePath.empty() || texturePath[0] != '*') {
+        return nullptr;
+    }
+
+    int textureIndex = std::atoi(texturePath.c_str() + 1);
+    if (textureIndex >= 0 && static_cast<unsigned int>(textureIndex) < scene->mNumTextures) {
+        return scene->mTextures[textureIndex];
+    }
+    return nullptr;
+}
+
 unsigned int TextureFromFile(const char* path, const std::string& directory) {
-    std::string filename = NormalizeTexturePath(path);
-    filename = directory + '/' + filename;
+    std::string filename = ResolveTexturePath(path ? path : "", directory);
 
     unsigned int textureID;
     glGenTextures(1, &textureID);
@@ -140,17 +261,150 @@ unsigned int TextureFromFile(const char* path, const std::string& directory) {
     }
     if (!data) {
         std::cerr << " -> failed: " << filename << std::endl;
-
-        glBindTexture(GL_TEXTURE_2D, textureID);
-        unsigned char magenta[] = { 255, 0, 255, 255 };
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, magenta);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glDeleteTextures(1, &textureID);
+        textureID = CreateFallbackTexture(filename);
     }
 
     return textureID;
+}
+
+static vmath::mat4 ToVmathMatrix(const aiMatrix4x4& m) {
+    return vmath::mat4(
+        vmath::vec4(m.a1, m.b1, m.c1, m.d1),
+        vmath::vec4(m.a2, m.b2, m.c2, m.d2),
+        vmath::vec4(m.a3, m.b3, m.c3, m.d3),
+        vmath::vec4(m.a4, m.b4, m.c4, m.d4)
+    );
+}
+
+static std::string ToLowerCopy(std::string value) {
+    for (char& c : value) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return value;
+}
+
+static std::string TrimCopy(std::string value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.erase(value.begin());
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.pop_back();
+    }
+    return value;
+}
+
+static bool EndsWithIgnoreCase(const std::string& value, const std::string& suffix) {
+    if (value.size() < suffix.size()) return false;
+    return ToLowerCopy(value.substr(value.size() - suffix.size())) == ToLowerCopy(suffix);
+}
+
+static bool IsFbxPath(const std::string& path) {
+    return EndsWithIgnoreCase(path, ".fbx");
+}
+
+struct MtlTextureSet {
+    std::string diffuse;
+    std::string alpha;
+};
+
+static std::map<std::string, MtlTextureSet> LoadMtlTextureMap(const std::string& directory) {
+    std::map<std::string, MtlTextureSet> result;
+    WIN32_FIND_DATAA findData = {};
+    HANDLE findHandle = FindFirstFileA((directory + "/*.mtl").c_str(), &findData);
+    if (findHandle == INVALID_HANDLE_VALUE) {
+        return result;
+    }
+
+    do {
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+
+        std::ifstream input(directory + "/" + findData.cFileName);
+        if (!input) {
+            continue;
+        }
+
+        std::string currentMaterial;
+        std::string line;
+        while (std::getline(input, line)) {
+            line = TrimCopy(line);
+            if (line.empty() || line[0] == '#') {
+                continue;
+            }
+
+            if (line.rfind("newmtl ", 0) == 0) {
+                currentMaterial = TrimCopy(line.substr(7));
+            }
+            else if (!currentMaterial.empty() && line.rfind("map_Kd ", 0) == 0) {
+                result[currentMaterial].diffuse = TrimCopy(line.substr(7));
+            }
+            else if (!currentMaterial.empty() && line.rfind("map_d ", 0) == 0) {
+                result[currentMaterial].alpha = TrimCopy(line.substr(6));
+            }
+        }
+    } while (FindNextFileA(findHandle, &findData));
+
+    FindClose(findHandle);
+    return result;
+}
+
+static std::string GuessTextureFromMaterialName(const std::string& materialName, bool alphaTexture, const std::string& directory) {
+    const std::string lower = ToLowerCopy(materialName);
+    std::vector<std::string> candidates;
+
+    if (directory.find("Aemeath_MechaForm") != std::string::npos) {
+        if (lower.find("body") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiGDMd10011Body_alpha.png" : "TEX/T_R2T1AimisiGDMd10011Body_D.png");
+        if (lower.find("hand") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiGDMd10011Hand_alpha.png" : "TEX/T_R2T1AimisiGDMd10011Hand_D.png");
+        if (lower.find("head1") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiGDMd10011Head1_alpha.png" : "TEX/T_R2T1AimisiGDMd10011Head1_D.png");
+        if (lower.find("head2") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiGDMd10011Head2_alpha.png" : "TEX/T_R2T1AimisiGDMd10011Head2_D.png");
+        if (lower.find("leg") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiGDMd10011Leg_alpha.png" : "TEX/T_R2T1AimisiGDMd10011Leg_D.png");
+        if (lower.find("wing") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiGDMd10011Wing_alpha.png" : "TEX/T_R2T1AimisiGDMd10011Wing_D.png");
+        if (lower.find("corn") != std::string::npos) candidates.push_back(alphaTexture ? "" : "TEX/T_R2T1AimisiGDMd10011Corn_D.png");
+    }
+    else {
+        if (lower.find("eye") != std::string::npos) candidates.push_back(alphaTexture ? "" : "tex/T_R2T1AimisiMd10011Eye_D.png");
+        if (lower.find("hair") != std::string::npos || lower.find("bang") != std::string::npos) candidates.push_back(alphaTexture ? "tex/T_R2T1AimisiMd10011Hair_D.png" : "tex/T_R2T1AimisiMd10011Hair_D.png");
+        if (lower.find("face") != std::string::npos || lower.find("cheek") != std::string::npos) candidates.push_back(alphaTexture ? "" : "tex/T_R2T1AimisiMd10011Face_D.png");
+        if (lower.find("up") != std::string::npos || lower.find("body") != std::string::npos) candidates.push_back(alphaTexture ? "tex/T_R2T1AimisiMd10011Up02_Dal.png" : "tex/T_R2T1AimisiMd10011Up01_D.png");
+        if (lower.find("down") != std::string::npos || lower.find("leg") != std::string::npos || lower.find("boot") != std::string::npos) candidates.push_back(alphaTexture ? "tex/T_R2T1AimisiMd10011Down02_Dal.png" : "tex/T_R2T1AimisiMd10011Down01_D.png");
+        if (lower.find("item") != std::string::npos) candidates.push_back(alphaTexture ? "AONMPB/T_R2T1AimisiMd10011Item_D alpha.png" : "tex/T_R2T1AimisiMd10011Item_D.png");
+    }
+
+    for (const std::string& candidate : candidates) {
+        if (!candidate.empty() && FileExistsForTexture(ResolveTexturePath(candidate, directory))) {
+            return candidate;
+        }
+    }
+    return "";
+}
+
+static void ExpandBounds(Bounds3& bounds, const aiVector3D& point) {
+    vmath::vec3 p(point.x, point.y, point.z);
+    if (!bounds.valid) {
+        bounds.min = p;
+        bounds.max = p;
+        bounds.valid = true;
+        return;
+    }
+
+    bounds.min = vmath::vec3(std::min(bounds.min[0], p[0]), std::min(bounds.min[1], p[1]), std::min(bounds.min[2], p[2]));
+    bounds.max = vmath::vec3(std::max(bounds.max[0], p[0]), std::max(bounds.max[1], p[1]), std::max(bounds.max[2], p[2]));
+}
+
+static bool IsRelevantBoneName(const std::string& name) {
+    std::string lower = ToLowerCopy(name);
+    return lower.find("shoulder") != std::string::npos ||
+        lower.find("upperarm") != std::string::npos ||
+        lower.find("arm") != std::string::npos ||
+        lower.find("elbow") != std::string::npos ||
+        lower.find("forearm") != std::string::npos ||
+        lower.find("hip") != std::string::npos ||
+        lower.find("pelvis") != std::string::npos ||
+        lower.find("thigh") != std::string::npos ||
+        lower.find("knee") != std::string::npos ||
+        lower.find("leg") != std::string::npos;
 }
 
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<GLuint> indices, std::vector<Texture> textures,
@@ -266,9 +520,13 @@ void Model::init(const std::string& objFilePath, const std::string& vsPath, cons
 
     meshes.clear();
     textures_loaded.clear();
+    relevantBones.clear();
     hasModelBounds = false;
     modelMinY = 0.0f;
     modelMaxY = 0.0f;
+    upAxis = 1;
+    importScale = 1.0f;
+    importGroundOffset = 0.0f;
 
     loadModel(objFilePath);
     setupFloor();
@@ -368,7 +626,8 @@ void Model::loadModel(const std::string& path) {
         aiProcess_Triangulate |
         aiProcess_GenSmoothNormals |
         aiProcess_CalcTangentSpace |
-        aiProcess_FlipUVs);
+        aiProcess_FlipUVs |
+        aiProcess_JoinIdenticalVertices);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "ERROR::ASSIMP:: " << importer.GetErrorString() << std::endl;
@@ -378,6 +637,8 @@ void Model::loadModel(const std::string& path) {
     size_t pos = path.find_last_of("/\\");
     directory = (pos != std::string::npos) ? path.substr(0, pos) : ".";
 
+    configureImportTransform(scene);
+    processSkeletonData(scene);
     processNode(scene->mRootNode, scene);
 }
 
@@ -391,6 +652,65 @@ void Model::processNode(aiNode* node, const aiScene* scene) {
     }
 }
 
+void Model::configureImportTransform(const aiScene* scene) {
+    Bounds3 rawBounds;
+    if (!scene) return;
+
+    for (unsigned int meshIndex = 0; meshIndex < scene->mNumMeshes; meshIndex++) {
+        aiMesh* mesh = scene->mMeshes[meshIndex];
+        for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+            ExpandBounds(rawBounds, mesh->mVertices[i]);
+        }
+    }
+    if (!rawBounds.valid) return;
+
+    const float rangeX = rawBounds.max[0] - rawBounds.min[0];
+    const float rangeY = rawBounds.max[1] - rawBounds.min[1];
+    const float rangeZ = rawBounds.max[2] - rawBounds.min[2];
+    upAxis = 1;
+    float height = rangeY;
+    if (rangeZ > rangeY * 1.5f) {
+        upAxis = 2;
+        height = rangeZ;
+    }
+
+    const float targetHeight = 12.0f;
+    importScale = (height > 0.0001f) ? (targetHeight / height) : 1.0f;
+
+    float minImportedY = 0.0f;
+    if (upAxis == 0) minImportedY = rawBounds.min[0];
+    else if (upAxis == 2) minImportedY = rawBounds.min[2];
+    else minImportedY = rawBounds.min[1];
+    importGroundOffset = -minImportedY;
+
+    std::cout << "[Import transform] bounds ranges=(" << rangeX << ", " << rangeY << ", " << rangeZ
+        << "), upAxis=" << upAxis << ", scale=" << importScale << std::endl;
+}
+
+vmath::vec3 Model::transformImportedPosition(const aiVector3D& position) const {
+    vmath::vec3 transformed;
+    if (upAxis == 2) {
+        transformed = vmath::vec3(position.x, position.z + importGroundOffset, -position.y);
+    }
+    else if (upAxis == 0) {
+        transformed = vmath::vec3(-position.y, position.x + importGroundOffset, position.z);
+    }
+    else {
+        transformed = vmath::vec3(position.x, position.y + importGroundOffset, position.z);
+    }
+    return transformed * importScale;
+}
+
+vmath::vec3 Model::transformImportedNormal(const aiVector3D& normal) const {
+    if (upAxis == 2) {
+        return vmath::vec3(normal.x, normal.z, -normal.y);
+    }
+    if (upAxis == 0) {
+        return vmath::vec3(-normal.y, normal.x, normal.z);
+    }
+    return vmath::vec3(normal.x, normal.y, normal.z);
+}
+
 Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
     std::vector<Vertex> vertices;
     std::vector<GLuint> indices;
@@ -398,7 +718,7 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         Vertex vertex;
-        vertex.position = vmath::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        vertex.position = transformImportedPosition(mesh->mVertices[i]);
         if (!hasModelBounds) {
             modelMinY = vertex.position[1];
             modelMaxY = vertex.position[1];
@@ -409,7 +729,7 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
             modelMaxY = std::max(modelMaxY, vertex.position[1]);
         }
         vertex.normal = mesh->HasNormals()
-            ? vmath::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z)
+            ? transformImportedNormal(mesh->mNormals[i])
             : vmath::vec3(0.0f, 0.0f, 0.0f);
         vertex.texCoord = mesh->mTextureCoords[0]
             ? vmath::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y)
@@ -439,11 +759,29 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
         }
         material->Get(AI_MATKEY_OPACITY, opacity);
 
-        std::vector<Texture> diffuseMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse");
+        std::vector<Texture> diffuseMaps = loadMaterialTextures(material, scene, aiTextureType_DIFFUSE, "texture_diffuse");
         textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
 
-        std::vector<Texture> alphaMaps = loadMaterialTextures(material, aiTextureType_OPACITY, "texture_alpha");
+        if (diffuseMaps.empty()) {
+            std::vector<Texture> baseColorMaps = loadMaterialTextures(material, scene, aiTextureType_BASE_COLOR, "texture_diffuse");
+            textures.insert(textures.end(), baseColorMaps.begin(), baseColorMaps.end());
+            diffuseMaps.insert(diffuseMaps.end(), baseColorMaps.begin(), baseColorMaps.end());
+        }
+        if (diffuseMaps.empty()) {
+            std::vector<Texture> fallbackMaps = loadFallbackMaterialTextures(material, "texture_diffuse");
+            textures.insert(textures.end(), fallbackMaps.begin(), fallbackMaps.end());
+            diffuseMaps.insert(diffuseMaps.end(), fallbackMaps.begin(), fallbackMaps.end());
+        }
+
+        std::vector<Texture> alphaMaps = loadMaterialTextures(material, scene, aiTextureType_OPACITY, "texture_alpha");
+        if (alphaMaps.empty()) {
+            alphaMaps = loadFallbackMaterialTextures(material, "texture_alpha");
+        }
         textures.insert(textures.end(), alphaMaps.begin(), alphaMaps.end());
+
+        if (!diffuseMaps.empty()) {
+            diffuseColor = vmath::vec3(1.0f, 1.0f, 1.0f);
+        }
 
         for (const Texture& texture : diffuseMaps) {
             if (texture.path.find("_Dal") != std::string::npos) {
@@ -469,7 +807,100 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene) {
     return Mesh(vertices, indices, textures, diffuseColor, opacity, flipTextureV, drawBackFacesFirst, alphaCutout);
 }
 
-std::vector<Texture> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName) {
+void Model::processSkeletonData(const aiScene* scene) {
+    if (!scene) return;
+
+    for (unsigned int meshIndex = 0; meshIndex < scene->mNumMeshes; meshIndex++) {
+        aiMesh* mesh = scene->mMeshes[meshIndex];
+        for (unsigned int boneIndex = 0; boneIndex < mesh->mNumBones; boneIndex++) {
+            aiBone* bone = mesh->mBones[boneIndex];
+            const std::string boneName = bone->mName.C_Str();
+            if (!IsRelevantBoneName(boneName)) {
+                continue;
+            }
+
+            bool alreadyLoaded = false;
+            for (const BoneData& loadedBone : relevantBones) {
+                if (loadedBone.name == boneName) {
+                    alreadyLoaded = true;
+                    break;
+                }
+            }
+            if (alreadyLoaded) {
+                continue;
+            }
+
+            BoneData boneData;
+            boneData.name = boneName;
+            boneData.sourceIndex = static_cast<int>(boneIndex);
+            boneData.offsetMatrix = ToVmathMatrix(bone->mOffsetMatrix);
+            relevantBones.push_back(boneData);
+        }
+    }
+
+    std::cout << "[Skeleton] relevant bones loaded: " << relevantBones.size() << std::endl;
+    for (const BoneData& bone : relevantBones) {
+        std::cout << "  - " << bone.name << std::endl;
+    }
+}
+
+std::vector<Texture> Model::loadFallbackMaterialTextures(aiMaterial* mat, std::string typeName) {
+    std::vector<Texture> textures;
+    aiString name;
+    if (AI_SUCCESS != mat->Get(AI_MATKEY_NAME, name)) {
+        return textures;
+    }
+
+    const std::string materialName = name.C_Str();
+    static std::map<std::string, std::map<std::string, MtlTextureSet>> mtlCache;
+    if (mtlCache.find(directory) == mtlCache.end()) {
+        mtlCache[directory] = LoadMtlTextureMap(directory);
+    }
+
+    std::string texturePath;
+    const bool wantsAlpha = (typeName == "texture_alpha");
+    const std::map<std::string, MtlTextureSet>& materialMap = mtlCache[directory];
+    auto exact = materialMap.find(materialName);
+    if (exact != materialMap.end()) {
+        texturePath = wantsAlpha ? exact->second.alpha : exact->second.diffuse;
+    }
+
+    if (texturePath.empty()) {
+        const std::string lowerMaterialName = ToLowerCopy(materialName);
+        for (const auto& entry : materialMap) {
+            if (ToLowerCopy(entry.first) == lowerMaterialName) {
+                texturePath = wantsAlpha ? entry.second.alpha : entry.second.diffuse;
+                break;
+            }
+        }
+    }
+
+    if (texturePath.empty()) {
+        texturePath = GuessTextureFromMaterialName(materialName, wantsAlpha, directory);
+    }
+    if (texturePath.empty()) {
+        return textures;
+    }
+
+    for (const Texture& loaded : textures_loaded) {
+        if (loaded.path == texturePath && loaded.type == typeName) {
+            textures.push_back(loaded);
+            return textures;
+        }
+    }
+
+    Texture texture;
+    texture.id = TextureFromFile(texturePath.c_str(), directory);
+    texture.type = typeName;
+    texture.path = texturePath;
+    textures.push_back(texture);
+    textures_loaded.push_back(texture);
+
+    std::cout << "[Material fallback] " << materialName << " -> " << texturePath << std::endl;
+    return textures;
+}
+
+std::vector<Texture> Model::loadMaterialTextures(aiMaterial* mat, const aiScene* scene, aiTextureType type, std::string typeName) {
     std::vector<Texture> textures;
     for (unsigned int i = 0; i < mat->GetTextureCount(type); i++) {
         aiString str;
@@ -486,7 +917,8 @@ std::vector<Texture> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType 
         }
         if (!skip) {
             Texture texture;
-            texture.id = TextureFromFile(texturePath.c_str(), this->directory);
+            const aiTexture* embeddedTexture = FindEmbeddedTexture(scene, texturePath);
+            texture.id = embeddedTexture ? TextureFromMemory(embeddedTexture, texturePath) : TextureFromFile(texturePath.c_str(), this->directory);
             texture.type = typeName;
             texture.path = texturePath;
             textures.push_back(texture);

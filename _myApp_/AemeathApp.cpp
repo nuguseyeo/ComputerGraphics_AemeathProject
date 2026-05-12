@@ -38,26 +38,26 @@ void AemeathApp::startup() {
     char exePath[MAX_PATH] = {};
     GetModuleFileNameA(nullptr, exePath, MAX_PATH);
     char title[256] = {};
-    std::snprintf(title, sizeof(title), "AemeathProject_Graphics_Ver1 | FirstPersonEyeNearer4 v2026-05-12 00:38");
+    std::snprintf(title, sizeof(title), "AemeathProject_Graphics_Ver1 | FBXTextureSkeleton v2026-05-12 01:10");
     setWindowTitle(title);
     std::printf("[Runtime] %s\n", title);
     std::printf("[Runtime EXE] %s\n", exePath);
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    humanModel.init("../forModel/Aemeath_HumanForm/Aemeath_source.pmx", "Model_vs.glsl", "Model_fs.glsl");
-    mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_mecha_source.pmx", "Model_vs.glsl", "Model_fs.glsl");
+    humanModel.init("../forModel/Aemeath_HumanForm/Aemeath(human).fbx", "Model_vs.glsl", "Model_fs.glsl");
+    mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_MechForm.fbx", "Model_vs.glsl", "Model_fs.glsl");
 }
 
 void AemeathApp::render(double currentTime) {
-    // 0. OpenGL 렌더링 영역을 현재 창 크기에 맞게 설정 (잘림 방지 핵심!)
+    // Match the OpenGL viewport to the current window size.
     glViewport(0, 0, info.windowWidth, info.windowHeight);
 
-    // 2. 화면 색상 및 깊이 버퍼 초기화 (중복 코드 제거하고 하나로 통합!)
+    // Clear color and depth buffers.
     static const GLfloat dark_gray[] = { 0.1f, 0.1f, 0.1f, 1.0f };
     glClearBufferfv(GL_COLOR, 0, dark_gray);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // 깊이 버퍼 지우기 필수!
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // 깊이 테스트 켜기 (앞에 있는 물체가 뒤를 가리도록)
+    // Enable depth testing so nearer geometry occludes farther geometry.
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
@@ -71,7 +71,7 @@ void AemeathApp::render(double currentTime) {
         deltaTime = 1.0 / 30.0;
     }
 
-    // 현재 키보드 입력 상태 감지: 마우스로 정한 정면 방향을 기준으로 이동 벡터를 만든다.
+    // Build movement from keyboard input relative to the camera direction.
     float localRight = 0.0f;
     float localForward = 0.0f;
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) localForward += 1.0f;
@@ -87,17 +87,17 @@ void AemeathApp::render(double currentTime) {
     bool hasMovementInput = (localRight != 0.0f || localForward != 0.0f);
     bool isShiftHeld = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS);
 
-    // 달리기 상태 전환 로직: Shift를 꾹 누르고 있고 이동 중일 때만 달리기 유지
+    // Keep sprinting only while Shift and movement input are active.
     if (isShiftHeld && hasMovementInput && !Aemeath.getIsDashing()) {
         Aemeath.setSprinting(true);
         isUIChanged = true;
     }
     else {
-        // 방향키를 떼거나 Shift를 떼면 자동으로 걷기로 전환
+        // Return to walking when movement input or Shift is released.
         Aemeath.setSprinting(false);
     }
 
-    // Moving State: WASD 입력 중에는 캐릭터의 등이 카메라를 향하도록 매 프레임 현재 카메라 yaw를 추적한다.
+    // During movement, rotate the character back toward the camera yaw.
     if (hasMovementInput) {
         controlState = CharacterControlState::Moving;
         Aemeath.move(moveX, moveZ, deltaTime);
@@ -105,7 +105,7 @@ void AemeathApp::render(double currentTime) {
     }
     else {
         controlState = CharacterControlState::Idle;
-        // Idle State: 마우스 입력은 camera orbit만 바꾸며 캐릭터 model matrix는 유지된다.
+        // Mouse input changes only the camera orbit while idle.
     }
 
     if (viewMode == CameraViewMode::FirstPerson) {
@@ -116,7 +116,7 @@ void AemeathApp::render(double currentTime) {
     }
     Aemeath.updatePhysics(deltaTime);
     if (Aemeath.getY() > 0.0f || Aemeath.getIsDashing()) {
-        isUIChanged = true; // 공중에 있거나 대쉬 중일 땐 UI를 계속 갱신
+        isUIChanged = true;
     }
 
     if (isUIChanged) {
@@ -124,7 +124,7 @@ void AemeathApp::render(double currentTime) {
         isUIChanged = false;
     }
 
-    // 모델의 종횡비 구하기 (창 너비 / 창 높이)
+    // Window aspect ratio for perspective projection.
     float aspect = (float)info.windowWidth / (float)info.windowHeight;
     float cameraYaw = camera.yawDegrees;
     float modelFacingYaw = Aemeath.getYawDegrees();
@@ -158,7 +158,7 @@ void AemeathApp::onKey(int key, int action) {
             break;
         case GLFW_KEY_SPACE: Aemeath.jump(); break;
         case GLFW_KEY_LEFT_SHIFT: {
-            // Shift를 '누르는 순간' 마우스로 정한 정면 방향 기준으로 대쉬 발동
+            // Build movement from keyboard input relative to the camera direction.
             float localRight = 0.0f;
             float localForward = 0.0f;
             if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) localForward += 1.0f;
@@ -168,6 +168,7 @@ void AemeathApp::onKey(int key, int action) {
 
             vmath::vec3 cameraForward = camera.forwardXZ();
             vmath::vec3 cameraRight = camera.rightXZ();
+            // Dash in the current camera-relative movement direction.
             float dashX = cameraRight[0] * localRight + cameraForward[0] * localForward;
             float dashZ = cameraRight[2] * localRight + cameraForward[2] * localForward;
             if (localRight != 0.0f || localForward != 0.0f) {
