@@ -142,6 +142,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Model_fs.glsl" />
+    <None Include="Model_skinning_vs.glsl" />
     <None Include="Model_vs.glsl" />
   </ItemGroup>
   <ItemGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">

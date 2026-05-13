@@ -35,6 +35,9 @@
     <None Include="Model_vs.glsl">
       <Filter>소스 파일</Filter>
     </None>
+    <None Include="Model_skinning_vs.glsl">
+      <Filter>소스 파일</Filter>
+    </None>
     <None Include="Model_fs.glsl">
       <Filter>소스 파일</Filter>
     </None>

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <iostream>
 #include <sb7.h>
 #include <vmath.h>
@@ -15,6 +16,8 @@ struct Vertex {
     vmath::vec3 position;
     vmath::vec2 texCoord;
     vmath::vec3 normal;
+    int boneIDs[4] = { -1, -1, -1, -1 };
+    float boneWeights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // 2. 텍스처 구조체 (Assimp에서 읽어온 텍스처 정보 저장)
@@ -30,6 +33,144 @@ struct BoneData {
     int sourceIndex;
     unsigned int weightCount;
     vmath::mat4 offsetMatrix;
+    int animationIndex;
+    bool excludedFromLocomotion;
+};
+
+enum class BoneGroup {
+    Pelvis,
+    Waist,
+    Clavicle,
+    Shoulder,
+    UpperArm,
+    Elbow,
+    Forearm,
+    Wrist,
+    Hand,
+    Thigh,
+    Knee,
+    LowerLeg,
+    Ankle,
+    Foot,
+    Unknown
+};
+
+enum class BoneSide {
+    Center,
+    Left,
+    Right,
+    Unknown
+};
+
+enum class LocomotionState {
+    Idle,
+    Walk,
+    Run
+};
+
+enum class BoneRole {
+    None,
+    Root,
+    Pelvis,
+    Spine,
+    Chest,
+    LeftShoulder,
+    RightShoulder,
+    LeftUpperArm,
+    RightUpperArm,
+    LeftElbow,
+    RightElbow,
+    LeftHip,
+    RightHip,
+    LeftKnee,
+    RightKnee
+};
+
+enum class LocomotionDebugLevel {
+    PelvisOnly,
+    LeftLegOnly,
+    LowerBodyOnly,
+    FullBody
+};
+
+struct LocomotionBone {
+    int boneIndex;
+    BoneGroup group;
+    BoneSide side;
+    bool appliesOffset;
+};
+
+struct PrimaryLocomotionBone {
+    std::string name;
+    int skinningIndex;
+    BoneRole role;
+};
+
+struct SkeletonBoneMap {
+    int root = -1;
+    int pelvis = -1;
+    int spine = -1;
+    int chest = -1;
+    int leftShoulder = -1;
+    int rightShoulder = -1;
+    int leftUpperArm = -1;
+    int rightUpperArm = -1;
+    int leftElbow = -1;
+    int rightElbow = -1;
+    int leftHip = -1;
+    int rightHip = -1;
+    int leftKnee = -1;
+    int rightKnee = -1;
+};
+
+struct ProceduralLocomotionSettings {
+    float shoulderDownDeg = 35.0f;
+    float walkFrequency = 6.0f;
+    float walkArmSwingDeg = 30.0f;
+    float walkLegSwingDeg = 30.0f;
+    float walkKneeBendDeg = 30.0f;
+    float walkElbowBaseBendDeg = 10.0f;
+    float walkElbowSwingAddDeg = 5.0f;
+    float walkPelvisYawDeg = 3.0f;
+    float walkPelvisRollDeg = 2.0f;
+    float runFrequency = 9.0f;
+    float runArmSwingDeg = 35.0f;
+    float runLegSwingDeg = 40.0f;
+    float runKneeBendDeg = 60.0f;
+    float runElbowBaseBendDeg = 18.0f;
+    float runElbowSwingAddDeg = 8.0f;
+    float runTorsoLeanDeg = 6.0f;
+    float runPelvisYawDeg = 5.0f;
+    float blendInSpeed = 8.0f;
+    float blendOutSpeed = 6.0f;
+    float runBlendSpeed = 5.0f;
+    float runThreshold = 3.0f;
+};
+
+struct LocomotionAxisSettings {
+    int shoulderDownAxis = 2;
+    int armSwingAxis = 0;
+    int elbowBendAxis = 0;
+    int legSwingAxis = 0;
+    int kneeBendAxis = 0;
+    int pelvisYawAxis = 1;
+    int pelvisRollAxis = 2;
+    int leftShoulderDownSign = 1;
+    int rightShoulderDownSign = -1;
+    int leftArmSwingSign = 1;
+    int rightArmSwingSign = 1;
+    int leftElbowSign = 1;
+    int rightElbowSign = -1;
+    int leftLegSign = 1;
+    int rightLegSign = 1;
+    int leftKneeSign = 1;
+    int rightKneeSign = -1;
+};
+
+struct SkeletonNode {
+    std::string name;
+    vmath::mat4 baseTransform;
+    std::vector<SkeletonNode> children;
 };
 
 // 3. 개별 파트(머리카락, 얼굴 등)를 담당할 Mesh 클래스
@@ -66,21 +207,97 @@ public:
     GLuint shaderProgram;
     GLuint floorVAO = 0, floorVBO = 0, floorEBO = 0;
     GLuint floorTexture = 0;
+    GLuint boneMatrixBuffer = 0;
+    GLuint boneMatrixTexture = 0;
+    GLuint skeletonLineVAO = 0;
+    GLuint skeletonLineVBO = 0;
+    GLsizei skeletonLineVertexCount = 0;
     bool floorReady = false;
     float modelMinY = 0.0f;
     float modelMaxY = 0.0f;
     bool hasModelBounds = false;
+    bool proceduralLocomotionEnabled = true;
 
     void init(const std::string& objFilePath, const std::string& vsPath, const std::string& fsPath);
 
     // 시간(회전용)과 화면 비율(원근투영용)을 매개변수로 받도록 수정
-    void draw(float currentTime, float aspect, const vmath::vec3& characterPosition, float characterYawDegrees, float cameraYawDegrees, float cameraPitchDegrees, float cameraDistance, bool firstPersonCamera);
+    void draw(float currentTime, float deltaTime, float aspect, const vmath::vec3& characterPosition, float characterYawDegrees, float cameraYawDegrees, float cameraPitchDegrees, float cameraDistance, bool firstPersonCamera, bool hasMovementInput, float movementSpeedScale);
+    void setProceduralLocomotionEnabled(bool enabled);
+    bool isProceduralLocomotionEnabled() const { return proceduralLocomotionEnabled; }
+    void setLocomotionDebugLevel(LocomotionDebugLevel level);
+    void setBindPoseMode(bool enabled);
+    void setSkeletonDebugDraw(bool enabled);
+    void setSingleBoneTestMode(bool enabled);
+    void adjustShoulderCorrection(float deltaDegrees);
+    void cycleShoulderCorrectionAxis();
+    void cycleArmSwingAxis();
+    void cycleLegSwingAxis();
+    void cycleKneeBendAxis();
+    void flipShoulderCorrectionSign();
+    void flipLeftShoulderDownSign();
+    void flipRightShoulderDownSign();
+    void cycleSingleBoneTestRole();
+    void cycleSingleBoneTestAxis();
+    void adjustSingleBoneTestAngle(float deltaDegrees);
+    void setRunModeEnabled(bool enabled);
+    void printLocomotionDebug() const;
 
 private:
+    SkeletonNode rootNode;
+    vmath::mat4 globalInverseTransform = vmath::mat4::identity();
+    std::unordered_map<std::string, int> boneNameToIndex;
+    std::vector<LocomotionBone> locomotionBones;
+    std::vector<PrimaryLocomotionBone> primaryLocomotionBones;
+    std::vector<vmath::mat4> finalBoneMatrices;
+    SkeletonBoneMap boneMap;
+    ProceduralLocomotionSettings locomotionSettings;
+    LocomotionAxisSettings locomotionAxes;
+    float locomotionPhase = 0.0f;
+    float locomotionBlend = 0.0f;
+    LocomotionState locomotionState = LocomotionState::Idle;
+    LocomotionDebugLevel locomotionDebugLevel = LocomotionDebugLevel::FullBody;
+    bool hasRequiredBoneRoles = false;
+    bool bindPoseMode = false;
+    bool skeletonDebugDraw = false;
+    bool singleBoneTestMode = false;
+    float shoulderCorrectionDeg = 35.0f;
+    int shoulderCorrectionAxis = 2;
+    int shoulderCorrectionSign = -1;
+    BoneRole singleBoneTestRole = BoneRole::LeftUpperArm;
+    int singleBoneTestAxis = 0;
+    float singleBoneTestAngleDeg = 30.0f;
+    float walkTime = 0.0f;
+    float walkBlend = 0.0f;
+    float runBlend = 0.0f;
+    bool forceRunAnimation = false;
+    unsigned long long skinningVertexCount = 0;
+    unsigned long long zeroWeightVertexCount = 0;
+    unsigned long long badWeightVertexCount = 0;
+    unsigned long long influenceHistogram[5] = {};
+    float minWeightSum = 9999.0f;
+    float maxWeightSum = 0.0f;
+    double totalWeightSum = 0.0;
+
     void loadModel(const std::string& path);
     void processNode(aiNode* node, const aiScene* scene);
     Mesh processMesh(aiMesh* mesh, const aiScene* scene);
     void processSkeletonData(const aiScene* scene);
+    SkeletonNode copySkeletonNode(aiNode* node) const;
+    void buildPrimaryLocomotionRig();
+    void collectSkeletonNodeNames(const SkeletonNode& node, std::vector<std::string>& names) const;
+    const PrimaryLocomotionBone* findPrimaryBoneByRole(BoneRole role) const;
+    const SkeletonNode* findSkeletonNodeByName(const SkeletonNode& node, const std::string& name, const SkeletonNode** parent) const;
+    void printSelectedBoneInfo(BoneRole role) const;
+    void printFullSkeletonTable(const aiScene* scene) const;
+    void printSkinningStats() const;
+    void setupSkeletonDebugLines();
+    void collectSkeletonDebugLines(const SkeletonNode& node, const vmath::mat4& parentTransform, std::vector<float>& lineVertices) const;
+    void drawSkeletonDebug(GLuint shaderProgram);
+    void updateLocomotion(float deltaTime, bool hasMovementInput, float movementSpeedScale);
+    void computeFinalBoneMatrices();
+    void computeFinalBoneMatricesRecursive(const SkeletonNode& node, const vmath::mat4& parentTransform);
+    vmath::mat4 proceduralOffsetForPrimaryBone(const PrimaryLocomotionBone& bone) const;
+    void uploadBoneMatrices(GLuint shaderProgram) const;
     std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName);
     void setupFloor();
     void drawFloor(GLuint shaderProgram);

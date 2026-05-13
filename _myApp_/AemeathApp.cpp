@@ -3,6 +3,53 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+
+static std::ofstream gPmxDebugLog;
+
+static std::string QuoteForPowerShellSingleQuotedString(const std::string& value) {
+    std::string quoted;
+    quoted.reserve(value.size() + 8);
+    for (char c : value) {
+        quoted += c;
+        if (c == '\'') quoted += '\'';
+    }
+    return quoted;
+}
+
+static void StartPmxDebugLogWindow(const char* exePath) {
+    char drive[_MAX_DRIVE] = {};
+    char dir[_MAX_DIR] = {};
+    _splitpath_s(exePath, drive, sizeof(drive), dir, sizeof(dir), nullptr, 0, nullptr, 0);
+    std::string logPath = std::string(drive) + dir + "pmx_locomotion_debug.log";
+
+    gPmxDebugLog.open(logPath, std::ios::out | std::ios::trunc);
+    if (gPmxDebugLog.is_open()) {
+        std::cout.rdbuf(gPmxDebugLog.rdbuf());
+        std::cerr.rdbuf(gPmxDebugLog.rdbuf());
+        std::cout << "============================================================\n";
+        std::cout << "[LogWindow] PMX locomotion debug log started\n";
+        std::cout << "[LogWindow] logPath=" << logPath << "\n";
+        std::cout << "============================================================\n";
+        std::cout.flush();
+    }
+
+    const std::string psPath = QuoteForPowerShellSingleQuotedString(logPath);
+    std::string command = "powershell.exe -NoExit -Command \"$Host.UI.RawUI.WindowTitle='Aemeath PMX Locomotion Debug Log'; Get-Content -LiteralPath '" + psPath + "' -Wait\"";
+
+    STARTUPINFOA startupInfo = {};
+    PROCESS_INFORMATION processInfo = {};
+    startupInfo.cb = sizeof(startupInfo);
+    std::vector<char> mutableCommand(command.begin(), command.end());
+    mutableCommand.push_back('\0');
+    if (CreateProcessA(nullptr, mutableCommand.data(), nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &startupInfo, &processInfo)) {
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+    }
+}
 
 static float NormalizeDegrees(float degrees) {
     degrees = std::fmod(degrees, 360.0f);
@@ -42,6 +89,7 @@ static float CharacterYawFromMovementInput(float cameraYawDegrees, float localRi
 
 void AemeathApp::startup() {
     AllocConsole();
+    SetConsoleTitleA("Aemeath Combat UI");
     FILE* fp;
     freopen_s(&fp, "CONOUT$", "w", stdout);
     freopen_s(&fp, "CONOUT$", "w", stderr);
@@ -53,15 +101,19 @@ void AemeathApp::startup() {
 
     char exePath[MAX_PATH] = {};
     GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+    StartPmxDebugLogWindow(exePath);
     char title[256] = {};
     std::snprintf(title, sizeof(title), "AemeathProject_Graphics_Ver1 | PMXTextureStable v2026-05-13");
     setWindowTitle(title);
     std::printf("[Runtime] %s\n", title);
     std::printf("[Runtime EXE] %s\n", exePath);
+    std::printf("============================================================\n");
+    std::printf("[LogWindow] Separate PMX locomotion debug console initialized\n");
+    std::printf("============================================================\n");
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    humanModel.init("../forModel/Aemeath_HumanForm/Aemeath_source.pmx", "Model_vs.glsl", "Model_fs.glsl");
-    mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_mecha_source.pmx", "Model_vs.glsl", "Model_fs.glsl");
+    humanModel.init("../forModel/Aemeath_HumanForm/Aemeath_source.pmx", "Model_skinning_vs.glsl", "Model_fs.glsl");
+    mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_mecha_source.pmx", "Model_skinning_vs.glsl", "Model_fs.glsl");
 }
 
 void AemeathApp::render(double currentTime) {
@@ -149,7 +201,8 @@ void AemeathApp::render(double currentTime) {
     float cameraYaw = camera.yawDegrees;
     float modelFacingYaw = Aemeath.getYawDegrees();
     Model& activeModel = (Aemeath.getForm() == MECHA) ? mechaModel : humanModel;
-    activeModel.draw((float)currentTime, aspect, vmath::vec3(Aemeath.getX(), Aemeath.getY(), Aemeath.getZ()), modelFacingYaw, cameraYaw, camera.pitchDegrees, camera.distance, viewMode == CameraViewMode::FirstPerson);
+    const float movementSpeedScale = (Aemeath.getIsSprinting() || Aemeath.getIsDashing()) ? 2.0f : (hasMovementInput ? 1.0f : 0.0f);
+    activeModel.draw((float)currentTime, static_cast<float>(deltaTime), aspect, vmath::vec3(Aemeath.getX(), Aemeath.getY(), Aemeath.getZ()), modelFacingYaw, cameraYaw, camera.pitchDegrees, camera.distance, viewMode == CameraViewMode::FirstPerson, hasMovementInput || Aemeath.getIsDashing(), movementSpeedScale);
 }
 
 void AemeathApp::onKey(int key, int action) {
@@ -171,12 +224,101 @@ void AemeathApp::onKey(int key, int action) {
         case GLFW_KEY_E: Aemeath.useSkillE(); break;
         case GLFW_KEY_Q: Aemeath.useSkillQ(); break;
         case GLFW_KEY_R: Aemeath.useSkillR(); break;
+        case GLFW_KEY_1:
+            humanModel.adjustShoulderCorrection(-5.0f);
+            mechaModel.adjustShoulderCorrection(-5.0f);
+            break;
+        case GLFW_KEY_2:
+            humanModel.adjustShoulderCorrection(5.0f);
+            mechaModel.adjustShoulderCorrection(5.0f);
+            break;
+        case GLFW_KEY_3:
+            humanModel.cycleShoulderCorrectionAxis();
+            mechaModel.cycleShoulderCorrectionAxis();
+            break;
+        case GLFW_KEY_4:
+            humanModel.flipLeftShoulderDownSign();
+            mechaModel.flipLeftShoulderDownSign();
+            break;
+        case GLFW_KEY_5:
+            humanModel.flipRightShoulderDownSign();
+            mechaModel.flipRightShoulderDownSign();
+            break;
+        case GLFW_KEY_6:
+            humanModel.printLocomotionDebug();
+            mechaModel.printLocomotionDebug();
+            break;
+        case GLFW_KEY_7:
+            humanModel.flipShoulderCorrectionSign();
+            mechaModel.flipShoulderCorrectionSign();
+            break;
         case GLFW_KEY_V:
             viewMode = (viewMode == CameraViewMode::ThirdPerson) ? CameraViewMode::FirstPerson : CameraViewMode::ThirdPerson;
             Aemeath.rotateToward(viewMode == CameraViewMode::FirstPerson ? CharacterFirstPersonYawFromCamera(camera.yawDegrees) : CharacterBackYawFromCamera(camera.yawDegrees), 1.0 / 60.0);
             firstMouseMove = true;
             break;
         case GLFW_KEY_SPACE: Aemeath.jump(); break;
+        case GLFW_KEY_F1: {
+            static bool bindPose = false;
+            bindPose = !bindPose;
+            humanModel.setBindPoseMode(bindPose);
+            mechaModel.setBindPoseMode(bindPose);
+            break;
+        }
+        case GLFW_KEY_F2: {
+            static bool skeletonLines = false;
+            skeletonLines = !skeletonLines;
+            humanModel.setSkeletonDebugDraw(skeletonLines);
+            mechaModel.setSkeletonDebugDraw(skeletonLines);
+            break;
+        }
+        case GLFW_KEY_F3: {
+            static bool singleBone = false;
+            singleBone = !singleBone;
+            humanModel.setSingleBoneTestMode(singleBone);
+            mechaModel.setSingleBoneTestMode(singleBone);
+            break;
+        }
+        case GLFW_KEY_F4: {
+            humanModel.cycleSingleBoneTestRole();
+            mechaModel.cycleSingleBoneTestRole();
+            break;
+        }
+        case GLFW_KEY_F5: {
+            humanModel.cycleSingleBoneTestAxis();
+            mechaModel.cycleSingleBoneTestAxis();
+            break;
+        }
+        case GLFW_KEY_F6:
+            humanModel.adjustSingleBoneTestAngle(-5.0f);
+            mechaModel.adjustSingleBoneTestAngle(-5.0f);
+            break;
+        case GLFW_KEY_F7:
+            humanModel.adjustSingleBoneTestAngle(5.0f);
+            mechaModel.adjustSingleBoneTestAngle(5.0f);
+            break;
+        case GLFW_KEY_F8:
+            humanModel.printLocomotionDebug();
+            mechaModel.printLocomotionDebug();
+            break;
+        case GLFW_KEY_F9:
+            humanModel.cycleArmSwingAxis();
+            mechaModel.cycleArmSwingAxis();
+            break;
+        case GLFW_KEY_F10:
+            humanModel.cycleLegSwingAxis();
+            mechaModel.cycleLegSwingAxis();
+            break;
+        case GLFW_KEY_F11:
+            humanModel.cycleKneeBendAxis();
+            mechaModel.cycleKneeBendAxis();
+            break;
+        case GLFW_KEY_F12: {
+            const bool enabled = !humanModel.isProceduralLocomotionEnabled();
+            humanModel.setProceduralLocomotionEnabled(enabled);
+            mechaModel.setProceduralLocomotionEnabled(enabled);
+            break;
+        }
         case GLFW_KEY_LEFT_SHIFT: {
             // Build movement from keyboard input relative to the camera direction.
             float localRight = 0.0f;

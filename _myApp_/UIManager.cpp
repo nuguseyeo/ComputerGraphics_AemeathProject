@@ -1,6 +1,6 @@
 #include "UIManager.h"
-#include <windows.h> // cpp 파일에만 포함시킵니다!
-#include <cstdio>    // printf용
+#include <windows.h>
+#include <cstdio>
 
 void UIManager::clearConsole() {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -24,43 +24,39 @@ void UIManager::renderConsoleUI(const Character& player) {
     clearConsole();
 
     printf("========================================\n");
-    printf("        [ 에이메스 전투 시스템 UI ]      \n");
+    printf("        [ Aemeath Combat UI ]           \n");
     printf("========================================\n");
 
-    // %5.2f는 뭐지?
-    printf(" [현재 위치] X: %5.2f | Y: %5.2f | Z: %5.2f \n", player.getX(), player.getY(), player.getZ());
-    printf(" [상태] %s \n", player.getIsSprinting() ? ">> 달리는 중 <<" : "걷는 중");
+    printf(" [Position] X: %5.2f | Y: %5.2f | Z: %5.2f \n", player.getX(), player.getY(), player.getZ());
+    printf(" [Move] %s \n", player.getIsSprinting() ? ">> Running <<" : "Walking");
     if (player.getIsDashing()) {
-        printf(" [상태] >> 대쉬! << \n");
+        printf(" [Move] >> Dash << \n");
     }
     printf("----------------------------------------\n");
 
-    printf(" 폼 상태: [%s] \n", player.getForm() == HUMAN ? "HUMAN" : "MECHA (엑소스트라이더)");
-    printf(" 버프: %s \n", player.getIsEnhanced() ? "[강화 평타 장전됨!]" : "[없음]");
+    printf(" Form: [%s] \n", player.getForm() == HUMAN ? "HUMAN" : "MECHA");
+    printf(" Buff: %s \n", player.getIsEnhanced() ? "[Enhanced attack ready]" : "[None]");
     printf("----------------------------------------\n");
 
-    printf(" E 스택  : [");
+    printf(" E Stack : [");
     for (int i = 0; i < player.getMaxEStack(); i++) {
-        if (i < player.getEStack()) printf("■");
-        else printf("□");
+        printf(i < player.getEStack() ? "#" : "-");
     }
     printf("] (%d/%d)\n", player.getEStack(), player.getMaxEStack());
 
-    printf(" 궁극기  : [");
+    printf(" Ultimate: [");
     int gaugeBlocks = (int)(player.getUltGauge() / 10.0f);
     for (int i = 0; i < 10; i++) {
-        if (i < gaugeBlocks) printf("■");
-        else printf("□");
+        printf(i < gaugeBlocks ? "#" : "-");
     }
     printf("] (%.0f%%)\n", player.getUltGauge());
 
-    printf(" 2차 스택: [");
+    printf(" UltStack: [");
     for (int i = 0; i < player.getMaxUltStack(); i++) {
-        if (i < player.getUltStack()) printf("■");
-        else printf("□");
+        printf(i < player.getUltStack() ? "#" : "-");
     }
     printf("] (%d/%d)\n", player.getUltStack(), player.getMaxUltStack());
 
     printf("========================================\n");
-    printf(" 시스템 메시지: %s\n", player.getLastMessage().c_str());
+    printf(" Message: %s\n", player.getLastMessage().c_str());
 }
