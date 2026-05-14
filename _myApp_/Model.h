@@ -93,6 +93,54 @@ enum class LocomotionDebugLevel {
     FullBody
 };
 
+enum class DebugJointTestMode {
+    None,
+    LeftKnee_X_Pos,
+    LeftKnee_X_Neg,
+    LeftKnee_Y_Pos,
+    LeftKnee_Y_Neg,
+    LeftKnee_Z_Pos,
+    LeftKnee_Z_Neg,
+    RightKnee_X_Pos,
+    RightKnee_X_Neg,
+    RightKnee_Y_Pos,
+    RightKnee_Y_Neg,
+    RightKnee_Z_Pos,
+    RightKnee_Z_Neg,
+    LeftElbow_X_Pos,
+    LeftElbow_X_Neg,
+    LeftElbow_Y_Pos,
+    LeftElbow_Y_Neg,
+    LeftElbow_Z_Pos,
+    LeftElbow_Z_Neg,
+    RightElbow_X_Pos,
+    RightElbow_X_Neg,
+    RightElbow_Y_Pos,
+    RightElbow_Y_Neg,
+    RightElbow_Z_Pos,
+    RightElbow_Z_Neg
+};
+
+enum class LocalAxis {
+    X,
+    Y,
+    Z
+};
+
+struct JointBendConfig {
+    LocalAxis axis = LocalAxis::X;
+    float sign = 1.0f;
+    float minAngleDeg = 0.0f;
+    float maxAngleDeg = 30.0f;
+};
+
+struct LimbBendConfig {
+    JointBendConfig leftKnee = { LocalAxis::X, 1.0f, 0.0f, 30.0f };
+    JointBendConfig rightKnee = { LocalAxis::X, 1.0f, 0.0f, 30.0f };
+    JointBendConfig leftElbow = { LocalAxis::X, -1.0f, 0.0f, 60.0f };
+    JointBendConfig rightElbow = { LocalAxis::X, -1.0f, 0.0f, 60.0f };
+};
+
 struct LocomotionBone {
     int boneIndex;
     BoneGroup group;
@@ -104,6 +152,10 @@ struct PrimaryLocomotionBone {
     std::string name;
     int skinningIndex;
     BoneRole role;
+    JointBendConfig bendOverride;
+    bool hasBendOverride = false;
+    float bendWeight = 1.0f;
+    int bendStage = 0;
 };
 
 struct SkeletonBoneMap {
@@ -129,16 +181,16 @@ struct ProceduralLocomotionSettings {
     float walkArmSwingDeg = 30.0f;
     float walkLegSwingDeg = 30.0f;
     float walkKneeBendDeg = 30.0f;
-    float walkElbowBaseBendDeg = 10.0f;
-    float walkElbowSwingAddDeg = 5.0f;
+    float walkElbowBaseBendDeg = 8.0f;
+    float walkElbowSwingAddDeg = 22.0f;
     float walkPelvisYawDeg = 3.0f;
     float walkPelvisRollDeg = 2.0f;
     float runFrequency = 9.0f;
     float runArmSwingDeg = 35.0f;
     float runLegSwingDeg = 40.0f;
     float runKneeBendDeg = 60.0f;
-    float runElbowBaseBendDeg = 18.0f;
-    float runElbowSwingAddDeg = 8.0f;
+    float runElbowBaseBendDeg = 25.0f;
+    float runElbowSwingAddDeg = 35.0f;
     float runTorsoLeanDeg = 6.0f;
     float runPelvisYawDeg = 5.0f;
     float blendInSpeed = 8.0f;
@@ -231,6 +283,7 @@ public:
     void adjustShoulderCorrection(float deltaDegrees);
     void cycleShoulderCorrectionAxis();
     void cycleArmSwingAxis();
+    void cycleElbowBendAxis();
     void cycleLegSwingAxis();
     void cycleKneeBendAxis();
     void flipShoulderCorrectionSign();
@@ -238,6 +291,7 @@ public:
     void flipRightShoulderDownSign();
     void cycleSingleBoneTestRole();
     void cycleSingleBoneTestAxis();
+    void cycleDebugJointTestMode();
     void adjustSingleBoneTestAngle(float deltaDegrees);
     void setRunModeEnabled(bool enabled);
     void printLocomotionDebug() const;
@@ -252,6 +306,7 @@ private:
     SkeletonBoneMap boneMap;
     ProceduralLocomotionSettings locomotionSettings;
     LocomotionAxisSettings locomotionAxes;
+    LimbBendConfig bendConfig;
     float locomotionPhase = 0.0f;
     float locomotionBlend = 0.0f;
     LocomotionState locomotionState = LocomotionState::Idle;
@@ -266,6 +321,7 @@ private:
     BoneRole singleBoneTestRole = BoneRole::LeftUpperArm;
     int singleBoneTestAxis = 0;
     float singleBoneTestAngleDeg = 30.0f;
+    DebugJointTestMode debugJointTestMode = DebugJointTestMode::None;
     float walkTime = 0.0f;
     float walkBlend = 0.0f;
     float runBlend = 0.0f;
@@ -273,10 +329,15 @@ private:
     unsigned long long skinningVertexCount = 0;
     unsigned long long zeroWeightVertexCount = 0;
     unsigned long long badWeightVertexCount = 0;
+    unsigned long long droppedInfluenceCount = 0;
+    unsigned long long boneIdsOverUploadedRange = 0;
+    int maxBoneIdUsedByVertices = -1;
     unsigned long long influenceHistogram[5] = {};
     float minWeightSum = 9999.0f;
     float maxWeightSum = 0.0f;
     double totalWeightSum = 0.0;
+    std::vector<unsigned char> finalBoneMatrixUpdated;
+    unsigned int updatedFinalBoneMatrixCount = 0;
 
     void loadModel(const std::string& path);
     void processNode(aiNode* node, const aiScene* scene);
@@ -290,6 +351,13 @@ private:
     void printSelectedBoneInfo(BoneRole role) const;
     void printFullSkeletonTable(const aiScene* scene) const;
     void printSkinningStats() const;
+    void printBoneLimitSummary() const;
+    void printGLLimits() const;
+    void printCriticalBoneDiagnostics() const;
+    void printBoneMatrixUpdateStats() const;
+    void autoConfigureJointBendsFromSkeleton();
+    void printJointBasisDiagnostics() const;
+    void printFocusedJointDebug(BoneRole role) const;
     void setupSkeletonDebugLines();
     void collectSkeletonDebugLines(const SkeletonNode& node, const vmath::mat4& parentTransform, std::vector<float>& lineVertices) const;
     void drawSkeletonDebug(GLuint shaderProgram);

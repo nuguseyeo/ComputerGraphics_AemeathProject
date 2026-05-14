@@ -38,7 +38,7 @@ static void StartPmxDebugLogWindow(const char* exePath) {
     }
 
     const std::string psPath = QuoteForPowerShellSingleQuotedString(logPath);
-    std::string command = "powershell.exe -NoExit -Command \"$Host.UI.RawUI.WindowTitle='Aemeath PMX Locomotion Debug Log'; Get-Content -LiteralPath '" + psPath + "' -Wait\"";
+    std::string command = "powershell.exe -NoExit -Command \"$Host.UI.RawUI.WindowTitle='Aemeath PMX Locomotion Debug Log'; Get-Content -LiteralPath '" + psPath + "' -Encoding UTF8 -Wait\"";
 
     STARTUPINFOA startupInfo = {};
     PROCESS_INFORMATION processInfo = {};
@@ -280,13 +280,13 @@ void AemeathApp::onKey(int key, int action) {
             break;
         }
         case GLFW_KEY_F4: {
-            humanModel.cycleSingleBoneTestRole();
-            mechaModel.cycleSingleBoneTestRole();
+            humanModel.cycleDebugJointTestMode();
+            mechaModel.cycleDebugJointTestMode();
             break;
         }
         case GLFW_KEY_F5: {
-            humanModel.cycleSingleBoneTestAxis();
-            mechaModel.cycleSingleBoneTestAxis();
+            humanModel.cycleElbowBendAxis();
+            mechaModel.cycleElbowBendAxis();
             break;
         }
         case GLFW_KEY_F6:
