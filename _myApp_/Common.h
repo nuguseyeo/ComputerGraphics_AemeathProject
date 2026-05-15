@@ -2,5 +2,11 @@
 #include <string>
 #include <algorithm>
 
-// 캐릭터 폼 상태
-enum CharacterForm { HUMAN, MECHA };
+// CharacterForm은 플레이어가 현재 사용하는 외형/전투 폼을 나타냅니다.
+// 렌더링할 Model 선택과 UI 표시 문자열을 결정할 때 사용됩니다.
+enum CharacterForm {
+    // 인간형 모델과 인간형 전투 상태를 사용합니다.
+    HUMAN,
+    // 메카형 모델과 메카형 전투 상태를 사용합니다.
+    MECHA
+};

@@ -1,262 +1,27 @@
 ﻿#pragma once
 
-#include <vector>
 #include <string>
 #include <unordered_map>
-#include <iostream>
+#include <vector>
 #include <sb7.h>
 #include <vmath.h>
-#include <shader.h>
-#include <assimp/Importer.hpp>
 #include <assimp/scene.h>
-#include <assimp/postprocess.h>
+#include "BoneTypes.h"
+#include "LocomotionTypes.h"
+#include "Mesh.h"
+#include "ModelDrawParams.h"
+#include "ModelTypes.h"
+#include "SkeletonTypes.h"
 
-// 1. 버텍스 구조체
-struct Vertex {
-    vmath::vec3 position;
-    vmath::vec2 texCoord;
-    vmath::vec3 normal;
-    int boneIDs[4] = { -1, -1, -1, -1 };
-    float boneWeights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-};
-
-// 2. 텍스처 구조체 (Assimp에서 읽어온 텍스처 정보 저장)
-struct Texture {
-    GLuint id;
-    std::string type;
-    std::string path;
-};
-
-struct BoneData {
-    std::string name;
-    int meshIndex;
-    int sourceIndex;
-    unsigned int weightCount;
-    vmath::mat4 offsetMatrix;
-    int animationIndex;
-    bool excludedFromLocomotion;
-};
-
-enum class BoneGroup {
-    Pelvis,
-    Waist,
-    Clavicle,
-    Shoulder,
-    UpperArm,
-    Elbow,
-    Forearm,
-    Wrist,
-    Hand,
-    Thigh,
-    Knee,
-    LowerLeg,
-    Ankle,
-    Foot,
-    Unknown
-};
-
-enum class BoneSide {
-    Center,
-    Left,
-    Right,
-    Unknown
-};
-
-enum class LocomotionState {
-    Idle,
-    Walk,
-    Run
-};
-
-enum class BoneRole {
-    None,
-    Root,
-    Pelvis,
-    Spine,
-    Chest,
-    LeftShoulder,
-    RightShoulder,
-    LeftUpperArm,
-    RightUpperArm,
-    LeftElbow,
-    RightElbow,
-    LeftHip,
-    RightHip,
-    LeftKnee,
-    RightKnee
-};
-
-enum class LocomotionDebugLevel {
-    PelvisOnly,
-    LeftLegOnly,
-    LowerBodyOnly,
-    FullBody
-};
-
-enum class DebugJointTestMode {
-    None,
-    LeftKnee_X_Pos,
-    LeftKnee_X_Neg,
-    LeftKnee_Y_Pos,
-    LeftKnee_Y_Neg,
-    LeftKnee_Z_Pos,
-    LeftKnee_Z_Neg,
-    RightKnee_X_Pos,
-    RightKnee_X_Neg,
-    RightKnee_Y_Pos,
-    RightKnee_Y_Neg,
-    RightKnee_Z_Pos,
-    RightKnee_Z_Neg,
-    LeftElbow_X_Pos,
-    LeftElbow_X_Neg,
-    LeftElbow_Y_Pos,
-    LeftElbow_Y_Neg,
-    LeftElbow_Z_Pos,
-    LeftElbow_Z_Neg,
-    RightElbow_X_Pos,
-    RightElbow_X_Neg,
-    RightElbow_Y_Pos,
-    RightElbow_Y_Neg,
-    RightElbow_Z_Pos,
-    RightElbow_Z_Neg
-};
-
-enum class LocalAxis {
-    X,
-    Y,
-    Z
-};
-
-struct JointBendConfig {
-    LocalAxis axis = LocalAxis::X;
-    float sign = 1.0f;
-    float minAngleDeg = 0.0f;
-    float maxAngleDeg = 30.0f;
-};
-
-struct LimbBendConfig {
-    JointBendConfig leftKnee = { LocalAxis::X, 1.0f, 0.0f, 30.0f };
-    JointBendConfig rightKnee = { LocalAxis::X, 1.0f, 0.0f, 30.0f };
-    JointBendConfig leftElbow = { LocalAxis::X, -1.0f, 0.0f, 60.0f };
-    JointBendConfig rightElbow = { LocalAxis::X, -1.0f, 0.0f, 60.0f };
-};
-
-struct LocomotionBone {
-    int boneIndex;
-    BoneGroup group;
-    BoneSide side;
-    bool appliesOffset;
-};
-
-struct PrimaryLocomotionBone {
-    std::string name;
-    int skinningIndex;
-    BoneRole role;
-    JointBendConfig bendOverride;
-    bool hasBendOverride = false;
-    float bendWeight = 1.0f;
-    int bendStage = 0;
-};
-
-struct SkeletonBoneMap {
-    int root = -1;
-    int pelvis = -1;
-    int spine = -1;
-    int chest = -1;
-    int leftShoulder = -1;
-    int rightShoulder = -1;
-    int leftUpperArm = -1;
-    int rightUpperArm = -1;
-    int leftElbow = -1;
-    int rightElbow = -1;
-    int leftHip = -1;
-    int rightHip = -1;
-    int leftKnee = -1;
-    int rightKnee = -1;
-};
-
-struct ProceduralLocomotionSettings {
-    float shoulderDownDeg = 35.0f;
-    float walkFrequency = 6.0f;
-    float walkArmSwingDeg = 30.0f;
-    float walkLegSwingDeg = 30.0f;
-    float walkKneeBendDeg = 30.0f;
-    float walkElbowBaseBendDeg = 8.0f;
-    float walkElbowSwingAddDeg = 22.0f;
-    float walkPelvisYawDeg = 3.0f;
-    float walkPelvisRollDeg = 2.0f;
-    float runFrequency = 9.0f;
-    float runArmSwingDeg = 35.0f;
-    float runLegSwingDeg = 40.0f;
-    float runKneeBendDeg = 60.0f;
-    float runElbowBaseBendDeg = 25.0f;
-    float runElbowSwingAddDeg = 35.0f;
-    float runTorsoLeanDeg = 6.0f;
-    float runPelvisYawDeg = 5.0f;
-    float blendInSpeed = 8.0f;
-    float blendOutSpeed = 6.0f;
-    float runBlendSpeed = 5.0f;
-    float runThreshold = 3.0f;
-};
-
-struct LocomotionAxisSettings {
-    int shoulderDownAxis = 2;
-    int armSwingAxis = 0;
-    int elbowBendAxis = 0;
-    int legSwingAxis = 0;
-    int kneeBendAxis = 0;
-    int pelvisYawAxis = 1;
-    int pelvisRollAxis = 2;
-    int leftShoulderDownSign = 1;
-    int rightShoulderDownSign = -1;
-    int leftArmSwingSign = 1;
-    int rightArmSwingSign = 1;
-    int leftElbowSign = 1;
-    int rightElbowSign = -1;
-    int leftLegSign = 1;
-    int rightLegSign = 1;
-    int leftKneeSign = 1;
-    int rightKneeSign = -1;
-};
-
-struct SkeletonNode {
-    std::string name;
-    vmath::mat4 baseTransform;
-    std::vector<SkeletonNode> children;
-};
-
-// 3. 개별 파트(머리카락, 얼굴 등)를 담당할 Mesh 클래스
-class Mesh {
-public:
-    std::vector<Vertex> vertices;
-    std::vector<GLuint> indices;
-    std::vector<Texture> textures;
-    vmath::vec3 diffuseColor;
-    float opacity;
-    bool hasDiffuseTexture;
-    bool hasAlphaTexture;
-    bool flipTextureV;
-    bool drawBackFacesFirst;
-    bool alphaCutout;
-
-    Mesh(std::vector<Vertex> vertices, std::vector<GLuint> indices, std::vector<Texture> textures,
-         vmath::vec3 diffuseColor, float opacity, bool flipTextureV, bool drawBackFacesFirst, bool alphaCutout);
-    void draw(GLuint shaderProgram);
-    bool isTransparent() const;
-
-private:
-    GLuint VAO, VBO, EBO;
-    void setupMesh();
-};
-
-// 4. 전체 모델을 관리할 Model 클래스
+// Model은 PMX/FBX 등 외부 모델 파일을 Assimp로 읽고 mesh/texture/bone 데이터를 관리합니다.
+// 렌더링과 절차적 보행 구현은 아직 Model.cpp에 남아 있지만, 공용 타입 선언은 별도 헤더로 분리했습니다.
 class Model {
 public:
-    std::vector<Texture> textures_loaded; // 이미 로드된 텍스처 캐싱 (중복 로드 방지)
+    std::vector<Texture> textures_loaded;
     std::vector<Mesh> meshes;
     std::vector<BoneData> relevantBones;
-    std::string directory; // 모델 파일이 있는 디렉토리 경로
-    GLuint shaderProgram;
+    std::string directory;
+    GLuint shaderProgram = 0;
     GLuint floorVAO = 0, floorVBO = 0, floorEBO = 0;
     GLuint floorTexture = 0;
     GLuint boneMatrixBuffer = 0;
@@ -271,9 +36,7 @@ public:
     bool proceduralLocomotionEnabled = true;
 
     void init(const std::string& objFilePath, const std::string& vsPath, const std::string& fsPath);
-
-    // 시간(회전용)과 화면 비율(원근투영용)을 매개변수로 받도록 수정
-    void draw(float currentTime, float deltaTime, float aspect, const vmath::vec3& characterPosition, float characterYawDegrees, float cameraYawDegrees, float cameraPitchDegrees, float cameraDistance, bool firstPersonCamera, bool hasMovementInput, float movementSpeedScale);
+    void draw(const ModelDrawParams& params);
     void setProceduralLocomotionEnabled(bool enabled);
     bool isProceduralLocomotionEnabled() const { return proceduralLocomotionEnabled; }
     void setLocomotionDebugLevel(LocomotionDebugLevel level);

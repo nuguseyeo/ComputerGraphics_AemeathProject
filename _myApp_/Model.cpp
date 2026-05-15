@@ -1,11 +1,18 @@
-#include "Model.h"
+﻿#include "Model.h"
+#include "BoneClassifier.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <iostream>
 #include <windows.h>
+#include <shader.h>
+#include <assimp/Importer.hpp>
+#include <assimp/postprocess.h>
+
+using namespace BoneClassifier;
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -22,6 +29,9 @@
 #ifndef GL_MAX_TEXTURE_BUFFER_SIZE
 #define GL_MAX_TEXTURE_BUFFER_SIZE 0x8C2B
 #endif
+
+#pragma region Static Helpers
+// �� cpp ���ο����� ���� ���� �Լ��� ����� ���� �����Դϴ�.
 
 static bool HasGLExtension(const char* extensionName) {
     const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
@@ -96,35 +106,6 @@ static vmath::mat4 ToVmathMatrix(const aiMatrix4x4& m) {
         vmath::vec4(m.a3, m.b3, m.c3, m.d3),
         vmath::vec4(m.a4, m.b4, m.c4, m.d4)
     );
-}
-
-static const char* BoneGroupName(BoneGroup group) {
-    switch (group) {
-    case BoneGroup::Pelvis: return "Pelvis";
-    case BoneGroup::Waist: return "Waist";
-    case BoneGroup::Clavicle: return "Clavicle";
-    case BoneGroup::Shoulder: return "Shoulder";
-    case BoneGroup::UpperArm: return "UpperArm";
-    case BoneGroup::Elbow: return "Elbow";
-    case BoneGroup::Forearm: return "Forearm";
-    case BoneGroup::Wrist: return "Wrist";
-    case BoneGroup::Hand: return "Hand";
-    case BoneGroup::Thigh: return "Thigh";
-    case BoneGroup::Knee: return "Knee";
-    case BoneGroup::LowerLeg: return "LowerLeg";
-    case BoneGroup::Ankle: return "Ankle";
-    case BoneGroup::Foot: return "Foot";
-    default: return "Unknown";
-    }
-}
-
-static const char* BoneSideName(BoneSide side) {
-    switch (side) {
-    case BoneSide::Center: return "Center";
-    case BoneSide::Left: return "Left";
-    case BoneSide::Right: return "Right";
-    default: return "Unknown";
-    }
 }
 
 static const char* LocomotionDebugLevelName(LocomotionDebugLevel level) {
@@ -301,195 +282,6 @@ static const BoneRole kSingleBoneTestRoles[] = {
     BoneRole::RightKnee
 };
 
-static std::string ToLowerCopy(std::string value) {
-    for (char& c : value) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return value;
-}
-
-static std::string NormalizeBoneNameForRole(std::string value) {
-    value = ToLowerCopy(value);
-    value.erase(std::remove_if(value.begin(), value.end(), [](char c) {
-        return c == ' ' || c == '_' || c == '-' || c == '.';
-    }), value.end());
-    return value;
-}
-
-static bool ContainsAny(const std::string& value, const std::vector<std::string>& needles) {
-    for (const std::string& needle : needles) {
-        if (value.find(needle) != std::string::npos) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool IsRelevantBoneName(const std::string& name) {
-    const std::string lower = ToLowerCopy(name);
-    static const std::vector<std::string> asciiNeedles = {
-        "shoulder", "clavicle",
-        "upperarm", "upper_arm", "arm",
-        "elbow", "forearm", "lowerarm", "lower_arm",
-        "wrist", "hand",
-        "hip", "pelvis", "waist",
-        "thigh", "knee", "leg", "ankle"
-    };
-    if (ContainsAny(lower, asciiNeedles)) {
-        return true;
-    }
-
-    static const std::vector<std::string> utf8Needles = {
-        "\xE8\x82\xA9",                         // shoulder
-        "\xE8\x85\x95",                         // arm
-        "\xE8\x82\x98", "\xE3\x81\xB2\xE3\x81\x98", // elbow
-        "\xE6\x89\x8B\xE9\xA6\x96",             // wrist
-        "\xE8\x85\xB0", "\xE9\xAA\xA8\xE7\x9B\xA4", // waist / pelvis
-        "\xE4\xB8\x8B\xE5\x8D\x8A\xE8\xBA\xAB", // lower body
-        "\xE8\xB6\xB3",                         // leg / foot
-        "\xE8\x86\x9D", "\xE3\x81\xB2\xE3\x81\x96"  // knee
-    };
-    return ContainsAny(name, utf8Needles);
-}
-
-static bool IsFacialBoneName(const std::string& name) {
-    return ToLowerCopy(name).find("facial_") != std::string::npos;
-}
-
-static bool IsExcludedFromPrimaryLocomotion(const std::string& name) {
-    const std::string lower = ToLowerCopy(name);
-    return lower.find("facial") != std::string::npos
-        || lower.find("wrist") != std::string::npos
-        || lower.find("hand") != std::string::npos
-        || lower.find("finger") != std::string::npos
-        || lower.find("thumb") != std::string::npos
-        || lower.find("index") != std::string::npos
-        || lower.find("middle") != std::string::npos
-        || lower.find("ring") != std::string::npos
-        || lower.find("pinky") != std::string::npos
-        || lower.find("toe") != std::string::npos
-        || lower.find("ankle") != std::string::npos
-        || lower.find("foot") != std::string::npos
-        || lower.find("hair") != std::string::npos
-        || lower.find("skirt") != std::string::npos
-        || lower.find("cloth") != std::string::npos
-        || lower.find("ribbon") != std::string::npos
-        || lower.find("weapon") != std::string::npos
-        || lower.find("accessory") != std::string::npos
-        || lower.find("bust") != std::string::npos
-        || lower.find("chest") != std::string::npos
-        || lower.find("ik") != std::string::npos
-        || lower.find("roll") != std::string::npos
-        || lower.find("twist") != std::string::npos
-        || lower.find("target") != std::string::npos
-        || lower.find("effector") != std::string::npos
-        || lower.find("control") != std::string::npos
-        || lower.find("display") != std::string::npos
-        || lower.find("physics") != std::string::npos
-        || lower.find("rigidbody") != std::string::npos
-        || lower.find("jiggly") != std::string::npos
-        || lower.find("spring") != std::string::npos
-        || name.find("\xEF\xBC\xA9\xEF\xBC\xAB") != std::string::npos // full-width IK
-        || name.find("\xE6\x8D\xA9") != std::string::npos             // twist
-        || name.find("\xE8\xA6\xAA") != std::string::npos             // parent
-        || name.find("\xE5\x85\x88") != std::string::npos             // tip
-        || name.find("\xE8\xB6\xB3\xE9\xA6\x96") != std::string::npos // ankle
-        || name.find("\xE6\x89\x8B\xE9\xA6\x96") != std::string::npos // wrist
-        || name.find("\xE3\x81\xA4\xE3\x81\xBE\xE5\x85\x88") != std::string::npos // toe
-        || lower.find("dummy") != std::string::npos
-        || lower.find("helper") != std::string::npos;
-}
-
-static BoneRole ClassifyBoneRole(const std::string& boneName) {
-    if (IsExcludedFromPrimaryLocomotion(boneName)) {
-        return BoneRole::None;
-    }
-
-    const std::string normalized = NormalizeBoneNameForRole(boneName);
-    if (boneName == "\xE3\x82\xBB\xE3\x83\xB3\xE3\x82\xBF\xE3\x83\xBC" || normalized == "center" || normalized == "root") {
-        return BoneRole::Root;
-    }
-    if (boneName == "\xE4\xB8\x8B\xE5\x8D\x8A\xE8\xBA\xAB" || boneName == "\xE8\x85\xB0" || normalized == "pelvis" || normalized == "hip") {
-        return BoneRole::Pelvis;
-    }
-    if (boneName.find("\xE4\xB8\x8A\xE5\x8D\x8A\xE8\xBA\xAB") != std::string::npos || normalized.find("spine") != std::string::npos) {
-        return BoneRole::Spine;
-    }
-    if (normalized.find("chest") != std::string::npos) {
-        return BoneRole::Chest;
-    }
-    const bool left = boneName.find("\xE5\xB7\xA6") != std::string::npos
-        || normalized.rfind("left", 0) == 0 || normalized.rfind("l", 0) == 0 || normalized.size() > 1 && normalized.back() == 'l';
-    const bool right = boneName.find("\xE5\x8F\xB3") != std::string::npos
-        || normalized.rfind("right", 0) == 0 || normalized.rfind("r", 0) == 0 || normalized.size() > 1 && normalized.back() == 'r';
-
-    if (!left && !right) {
-        return BoneRole::None;
-    }
-
-    const bool shoulder = boneName.find("\xE8\x82\xA9") != std::string::npos
-        || normalized.find("shoulder") != std::string::npos
-        || normalized.find("clavicle") != std::string::npos;
-    const bool upperArm = boneName == std::string(left ? "\xE5\xB7\xA6\xE8\x85\x95" : "\xE5\x8F\xB3\xE8\x85\x95")
-        || normalized.find("upperarm") != std::string::npos
-        || normalized.find("upperleg") == std::string::npos && normalized.find("arm001") != std::string::npos
-        || normalized.find("upperleg") == std::string::npos && normalized.find("arm01") != std::string::npos;
-    const bool elbow = boneName.find("\xE3\x81\xB2\xE3\x81\x98") != std::string::npos
-        || boneName.find("\xE8\x82\x98") != std::string::npos
-        || boneName.find("\xE3\x83\x92\xE3\x82\xB8") != std::string::npos
-        || normalized.find("elbow") != std::string::npos;
-    const std::string sideHipPrefix = left ? "\xE5\xB7\xA6\xE8\xB6\xB3" : "\xE5\x8F\xB3\xE8\xB6\xB3";
-    const bool hip = boneName == sideHipPrefix
-        || boneName == sideHipPrefix + "D"
-        || normalized.find("thigh") != std::string::npos
-        || normalized.find("upperleg") != std::string::npos
-        || normalized.find("leg001") != std::string::npos
-        || normalized.find("leg01") != std::string::npos
-        || normalized.find("hip") != std::string::npos;
-    const bool knee = boneName.find(left ? "\xE5\xB7\xA6\xE3\x81\xB2\xE3\x81\x96" : "\xE5\x8F\xB3\xE3\x81\xB2\xE3\x81\x96") != std::string::npos
-        || boneName.find(left ? "\xE5\xB7\xA6\xE8\x86\x9D" : "\xE5\x8F\xB3\xE8\x86\x9D") != std::string::npos
-        || boneName.find(left ? "\xE5\xB7\xA6\xE3\x83\x92\xE3\x82\xB6" : "\xE5\x8F\xB3\xE3\x83\x92\xE3\x82\xB6") != std::string::npos
-        || normalized.find("knee") != std::string::npos;
-
-    if (shoulder) return left ? BoneRole::LeftShoulder : BoneRole::RightShoulder;
-    if (upperArm) return left ? BoneRole::LeftUpperArm : BoneRole::RightUpperArm;
-    if (elbow) return left ? BoneRole::LeftElbow : BoneRole::RightElbow;
-    if (hip) return left ? BoneRole::LeftHip : BoneRole::RightHip;
-    if (knee) return left ? BoneRole::LeftKnee : BoneRole::RightKnee;
-    return BoneRole::None;
-}
-
-static BoneSide ClassifyBoneSide(const std::string& name) {
-    const std::string lower = ToLowerCopy(name);
-    if (lower.find("_l") != std::string::npos || name.find("\xE5\xB7\xA6") != std::string::npos) {
-        return BoneSide::Left;
-    }
-    if (lower.find("_r") != std::string::npos || name.find("\xE5\x8F\xB3") != std::string::npos) {
-        return BoneSide::Right;
-    }
-    return BoneSide::Center;
-}
-
-static BoneGroup ClassifyBoneGroup(const std::string& name) {
-    const std::string lower = ToLowerCopy(name);
-    if (IsFacialBoneName(name)) return BoneGroup::Unknown;
-    if (lower.find("pelvis") != std::string::npos || name.find("\xE9\xAA\xA8\xE7\x9B\xA4") != std::string::npos) return BoneGroup::Pelvis;
-    if (lower.find("waist") != std::string::npos || lower.find("hip") != std::string::npos || name.find("\xE8\x85\xB0") != std::string::npos) return BoneGroup::Waist;
-    if (lower.find("clavicle") != std::string::npos) return BoneGroup::Clavicle;
-    if (lower.find("shoulder") != std::string::npos || name.find("\xE8\x82\xA9") != std::string::npos) return BoneGroup::Shoulder;
-    if (lower.find("upperarm") != std::string::npos || lower.find("upper_arm") != std::string::npos || lower.find("arm") != std::string::npos || name.find("\xE8\x85\x95") != std::string::npos) return BoneGroup::UpperArm;
-    if (lower.find("elbow") != std::string::npos || name.find("\xE8\x82\x98") != std::string::npos || name.find("\xE3\x81\xB2\xE3\x81\x98") != std::string::npos) return BoneGroup::Elbow;
-    if (lower.find("forearm") != std::string::npos || lower.find("lowerarm") != std::string::npos || lower.find("lower_arm") != std::string::npos) return BoneGroup::Forearm;
-    if (lower.find("wrist") != std::string::npos || name.find("\xE6\x89\x8B\xE9\xA6\x96") != std::string::npos) return BoneGroup::Wrist;
-    if (lower.find("hand") != std::string::npos) return BoneGroup::Hand;
-    if (lower.find("thigh") != std::string::npos) return BoneGroup::Thigh;
-    if (lower.find("knee") != std::string::npos || name.find("\xE8\x86\x9D") != std::string::npos || name.find("\xE3\x81\xB2\xE3\x81\x96") != std::string::npos) return BoneGroup::Knee;
-    if (lower.find("lowerleg") != std::string::npos || lower.find("lower_leg") != std::string::npos || lower.find("leg") != std::string::npos) return BoneGroup::LowerLeg;
-    if (lower.find("ankle") != std::string::npos) return BoneGroup::Ankle;
-    if (lower.find("foot") != std::string::npos || name.find("\xE8\xB6\xB3") != std::string::npos) return BoneGroup::Foot;
-    return BoneGroup::Unknown;
-}
-
 static float Clamp01(float value) {
     return std::max(0.0f, std::min(1.0f, value));
 }
@@ -612,110 +404,10 @@ unsigned int TextureFromFile(const char* path, const std::string& directory) {
     return textureID;
 }
 
-Mesh::Mesh(std::vector<Vertex> vertices, std::vector<GLuint> indices, std::vector<Texture> textures,
-           vmath::vec3 diffuseColor, float opacity, bool flipTextureV, bool drawBackFacesFirst, bool alphaCutout) {
-    this->vertices = vertices;
-    this->indices = indices;
-    this->textures = textures;
-    this->diffuseColor = diffuseColor;
-    this->opacity = opacity;
-    this->flipTextureV = flipTextureV;
-    this->drawBackFacesFirst = drawBackFacesFirst;
-    this->alphaCutout = alphaCutout;
-    this->hasDiffuseTexture = false;
-    this->hasAlphaTexture = false;
+#pragma endregion
 
-    for (const Texture& texture : textures) {
-        if (texture.type == "texture_diffuse") this->hasDiffuseTexture = true;
-        if (texture.type == "texture_alpha") this->hasAlphaTexture = true;
-    }
-
-    setupMesh();
-}
-
-void Mesh::setupMesh() {
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), &vertices[0], GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), &indices[0], GL_STATIC_DRAW);
-
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
-
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoord));
-
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
-
-    glEnableVertexAttribArray(3);
-    glVertexAttribIPointer(3, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, boneIDs));
-
-    glEnableVertexAttribArray(4);
-    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, boneWeights));
-
-    glBindVertexArray(0);
-}
-
-void Mesh::draw(GLuint shaderProgram) {
-    glUniform3f(glGetUniformLocation(shaderProgram, "materialDiffuse"), diffuseColor[0], diffuseColor[1], diffuseColor[2]);
-    glUniform1f(glGetUniformLocation(shaderProgram, "materialOpacity"), opacity);
-    glUniform1i(glGetUniformLocation(shaderProgram, "useDiffuseTexture"), hasDiffuseTexture ? 1 : 0);
-    glUniform1i(glGetUniformLocation(shaderProgram, "useAlphaTexture"), hasAlphaTexture ? 1 : 0);
-    glUniform1i(glGetUniformLocation(shaderProgram, "flipTextureV"), flipTextureV ? 1 : 0);
-
-    for (unsigned int i = 0; i < textures.size(); i++) {
-        if (textures[i].type == "texture_diffuse") {
-            glActiveTexture(GL_TEXTURE0);
-            glUniform1i(glGetUniformLocation(shaderProgram, "texture_diffuse1"), 0);
-            glBindTexture(GL_TEXTURE_2D, textures[i].id);
-        }
-        else if (textures[i].type == "texture_alpha") {
-            glActiveTexture(GL_TEXTURE1);
-            glUniform1i(glGetUniformLocation(shaderProgram, "texture_alpha1"), 1);
-            glBindTexture(GL_TEXTURE_2D, textures[i].id);
-        }
-    }
-
-    glBindVertexArray(VAO);
-    if (drawBackFacesFirst) {
-        GLboolean cullWasEnabled = glIsEnabled(GL_CULL_FACE);
-        GLint previousCullFace = GL_BACK;
-        glGetIntegerv(GL_CULL_FACE_MODE, &previousCullFace);
-
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
-
-        glCullFace(GL_BACK);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
-
-        glCullFace(previousCullFace);
-        if (!cullWasEnabled) {
-            glDisable(GL_CULL_FACE);
-        }
-    }
-    else {
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
-    }
-    glBindVertexArray(0);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-bool Mesh::isTransparent() const {
-    return !alphaCutout && (hasAlphaTexture || opacity < 0.999f);
-}
+#pragma region Model Lifecycle
+// �� �ʱ�ȭ �� shader, Assimp �ε�, �� ��� ����, �ٴ� ���ҽ��� �غ��ϴ� �����Դϴ�.
 
 void Model::init(const std::string& objFilePath, const std::string& vsPath, const std::string& fsPath) {
     GLuint vs = sb7::shader::load(vsPath.c_str(), GL_VERTEX_SHADER, true);
@@ -782,66 +474,38 @@ void Model::init(const std::string& objFilePath, const std::string& vsPath, cons
     setupFloor();
 }
 
-void Model::draw(float currentTime, float deltaTime, float aspect, const vmath::vec3& characterPosition, float characterYawDegrees, float cameraYawDegrees, float cameraPitchDegrees, float cameraDistance, bool firstPersonCamera, bool hasMovementInput, float movementSpeedScale) {
+#pragma endregion
+
+#pragma region Rendering
+// �����Ӻ� �� ���, ī�޶� ���, ����, �� ����� �����ϰ� mesh�� �׸��� �����Դϴ�.
+
+void Model::draw(const ModelDrawParams& params) {
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
     glUseProgram(shaderProgram);
-    updateLocomotion(deltaTime, hasMovementInput, movementSpeedScale);
+    updateLocomotion(params.deltaTime, params.hasMovementInput, params.movementSpeedScale);
     computeFinalBoneMatrices();
 
-    const float degToRad = 0.0174532925f;
-    const float yawRad = cameraYawDegrees * degToRad;
-    const float pitchRad = cameraPitchDegrees * degToRad;
-    const float horizontalDistance = std::cos(pitchRad) * cameraDistance;
-    const float modelHeight = hasModelBounds ? (modelMaxY - modelMinY) : 0.0f;
-    const float localEyeY = hasModelBounds ? (modelMinY + modelHeight * 0.965f) : 8.0f;
-    const float eyeHeight = localEyeY - 2.0f;
-    const float firstPersonEyeForwardOffset = 0.16f;
-
-    const float thirdPersonTargetY = hasModelBounds
-        ? modelMinY + modelHeight * 0.72f
-        : 8.0f;
-    vmath::vec3 target = characterPosition + vmath::vec3(0.0f, thirdPersonTargetY, 0.0f);
-    vmath::vec3 eye = target + vmath::vec3(
-        -std::sin(yawRad) * horizontalDistance,
-        std::sin(pitchRad) * cameraDistance,
-        std::cos(yawRad) * horizontalDistance
-    );
-
-    if (firstPersonCamera) {
-        vmath::vec3 horizontalView(std::sin(yawRad), 0.0f, -std::cos(yawRad));
-        eye = characterPosition + vmath::vec3(0.0f, eyeHeight, 0.0f) + horizontalView * firstPersonEyeForwardOffset;
-        vmath::vec3 lookDirection(
-            std::sin(yawRad) * std::cos(pitchRad),
-            std::sin(pitchRad),
-            -std::cos(yawRad) * std::cos(pitchRad)
-        );
-        target = eye + lookDirection;
-    }
-
-    if (eye[1] < 0.5f) {
-        eye[1] = 0.5f;
-    }
-
-    vmath::mat4 projection = vmath::perspective(firstPersonCamera ? 32.0f : 45.0f, aspect, firstPersonCamera ? 0.08f : 0.1f, 100.0f);
-    vmath::mat4 view = vmath::lookat(
-        eye,
-        target,
-        vmath::vec3(0.0f, 1.0f, 0.0f)
-    );
-    vmath::mat4 model_matrix = vmath::translate(characterPosition[0], characterPosition[1] - 2.0f, characterPosition[2])
-        * vmath::rotate(characterYawDegrees, 0.0f, 1.0f, 0.0f)
+    const CharacterCameraFrame cameraFrame = Camera::buildCharacterFrame(
+        params.camera,
+        params.aspect,
+        params.characterPosition,
+        modelMinY,
+        modelMaxY,
+        hasModelBounds);
+    vmath::mat4 model_matrix = vmath::translate(params.characterPosition[0], params.characterPosition[1] - 2.0f, params.characterPosition[2])
+        * vmath::rotate(params.characterYawDegrees, 0.0f, 1.0f, 0.0f)
         * vmath::scale(1.0f);
 
     GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
     GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
     GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
 
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, projection);
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, view);
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, cameraFrame.projection);
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, cameraFrame.view);
     glUniform3f(glGetUniformLocation(shaderProgram, "lightPos"), 18.0f, 28.0f, 12.0f);
-    glUniform3f(glGetUniformLocation(shaderProgram, "viewPos"), eye[0], eye[1], eye[2]);
+    glUniform3f(glGetUniformLocation(shaderProgram, "viewPos"), cameraFrame.eye[0], cameraFrame.eye[1], cameraFrame.eye[2]);
     glUniform3f(glGetUniformLocation(shaderProgram, "lightColor"), 1.0f, 0.94f, 0.82f);
     glUniform1f(glGetUniformLocation(shaderProgram, "ambientStrength"), 0.28f);
     glUniform1f(glGetUniformLocation(shaderProgram, "specularStrength"), 0.35f);
@@ -852,15 +516,13 @@ void Model::draw(float currentTime, float deltaTime, float aspect, const vmath::
     drawFloor(shaderProgram);
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model_matrix);
     uploadBoneMatrices(shaderProgram);
-    const bool drawCharacterMesh = !firstPersonCamera || cameraPitchDegrees < -6.0f;
-    glUniform1i(glGetUniformLocation(shaderProgram, "useFirstPersonClip"), firstPersonCamera ? 1 : 0);
-    const float firstPersonChestClipY = hasModelBounds ? characterPosition[1] + modelMinY + modelHeight * 0.78f - 2.0f : eye[1] - 1.35f;
-    glUniform1f(glGetUniformLocation(shaderProgram, "firstPersonClipMaxY"), firstPersonChestClipY);
+    glUniform1i(glGetUniformLocation(shaderProgram, "useFirstPersonClip"), params.camera.firstPerson ? 1 : 0);
+    glUniform1f(glGetUniformLocation(shaderProgram, "firstPersonClipMaxY"), cameraFrame.firstPersonChestClipY);
 
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
 
-    if (drawCharacterMesh) {
+    if (cameraFrame.drawCharacterMesh) {
         drawSkeletonDebug(shaderProgram);
         for (unsigned int i = 0; i < meshes.size(); i++) {
             if (!meshes[i].isTransparent()) meshes[i].draw(shaderProgram);
@@ -870,13 +532,18 @@ void Model::draw(float currentTime, float deltaTime, float aspect, const vmath::
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
-    if (drawCharacterMesh) {
+    if (cameraFrame.drawCharacterMesh) {
         for (unsigned int i = 0; i < meshes.size(); i++) {
             if (meshes[i].isTransparent()) meshes[i].draw(shaderProgram);
         }
     }
     glDepthMask(GL_TRUE);
 }
+
+#pragma endregion
+
+#pragma region Model Loading
+// �ܺ� �� ���ϰ� skeleton node�� �о� ���� ������ ������ ��ȯ�ϴ� �����Դϴ�.
 
 void Model::loadModel(const std::string& path) {
     Assimp::Importer importer;
@@ -949,6 +616,11 @@ const SkeletonNode* Model::findSkeletonNodeByName(const SkeletonNode& node, cons
     }
     return nullptr;
 }
+
+#pragma endregion
+
+#pragma region For Debug
+// ��Ÿ�� ���� Ȯ�ΰ� PMX/��/�α� ������ ���� ����� ���� �Լ� �����Դϴ�.
 
 void Model::printSelectedBoneInfo(BoneRole role) const {
     const PrimaryLocomotionBone* primary = findPrimaryBoneByRole(role);
@@ -1351,6 +1023,11 @@ void Model::printCriticalBoneDiagnostics() const {
     std::cout << "[CriticalBoneDiagnostics] end" << std::endl;
 }
 
+#pragma endregion
+
+#pragma region Skeleton Debug Rendering
+// skeleton ������ ���� vertex�� ����� ����� �������� �������ϴ� �����Դϴ�.
+
 void Model::collectSkeletonDebugLines(const SkeletonNode& node, const vmath::mat4& parentTransform, std::vector<float>& lineVertices) const {
     const vmath::mat4 globalTransform = parentTransform * node.baseTransform;
     const vmath::vec3 parentPos(parentTransform[3][0], parentTransform[3][1], parentTransform[3][2]);
@@ -1405,6 +1082,11 @@ void Model::drawSkeletonDebug(GLuint shaderProgram) {
     glBindVertexArray(0);
     glLineWidth(1.0f);
 }
+
+#pragma endregion
+
+#pragma region Locomotion Rig Setup
+// �� �� �̸��� ���� ���ҿ� �����ϰ� ���� ���� ��/��ȣ�� �����ϴ� �����Դϴ�.
 
 void Model::buildPrimaryLocomotionRig() {
     primaryLocomotionBones.clear();
@@ -1747,6 +1429,11 @@ void Model::autoConfigureJointBendsFromSkeleton() {
     locomotionAxes.elbowBendAxis = LocalAxisToIndex(bendConfig.leftElbow.axis);
 }
 
+#pragma endregion
+
+#pragma region For Debug
+// ��Ÿ�� ���� Ȯ�ΰ� PMX/��/�α� ������ ���� ����� ���� �Լ� �����Դϴ�.
+
 void Model::printJointBasisDiagnostics() const {
     auto translationOf = [](const vmath::mat4& matrix) {
         return vmath::vec3(matrix[3][0], matrix[3][1], matrix[3][2]);
@@ -1831,6 +1518,11 @@ void Model::printJointBasisDiagnostics() const {
     printRoleBasis(BoneRole::RightElbow);
     std::cout << "[JointBasis] diagnostics end" << std::endl;
 }
+
+#pragma endregion
+
+#pragma region Assimp Processing
+// Assimp scene/node/mesh/material/bone �����͸� ������Ʈ�� Mesh�� BoneData�� ��ȯ�ϴ� �����Դϴ�.
 
 void Model::processNode(aiNode* node, const aiScene* scene) {
     for (unsigned int i = 0; i < node->mNumMeshes; i++) {
@@ -2031,6 +1723,11 @@ void Model::processSkeletonData(const aiScene* scene) {
     }
 }
 
+#pragma endregion
+
+#pragma region Debug Controls
+// Ű �Է����� ������ ����, �� �׽�Ʈ, ��/��ȣ ������ �ٲٴ� ���� �Լ� �����Դϴ�.
+
 void Model::setProceduralLocomotionEnabled(bool enabled) {
     proceduralLocomotionEnabled = enabled;
     std::cout << "[Locomotion] procedural locomotion " << (enabled ? "enabled" : "disabled") << std::endl;
@@ -2167,6 +1864,11 @@ void Model::setRunModeEnabled(bool enabled) {
     std::cout << "[Locomotion] forced run animation " << (enabled ? "enabled" : "disabled") << std::endl;
 }
 
+#pragma endregion
+
+#pragma region For Debug
+// ��Ÿ�� ���� Ȯ�ΰ� PMX/��/�α� ������ ���� ����� ���� �Լ� �����Դϴ�.
+
 void Model::printLocomotionDebug() const {
     std::cout << "\n============================================================" << std::endl;
     std::cout << "[LocomotionDebug] snapshot begin" << std::endl;
@@ -2241,6 +1943,11 @@ void Model::printLocomotionDebug() const {
     std::cout << "============================================================" << std::endl;
     std::cout.flush();
 }
+
+#pragma endregion
+
+#pragma region Locomotion Animation
+// deltaTime ��� ���� phase/blend�� ���� �� ����� ����ϴ� �ִϸ��̼� �����Դϴ�.
 
 void Model::updateLocomotion(float deltaTime, bool hasMovementInput, float movementSpeedScale) {
     const bool isRunning = forceRunAnimation || movementSpeedScale >= locomotionSettings.runThreshold;
@@ -2495,6 +2202,11 @@ void Model::computeFinalBoneMatricesRecursive(const SkeletonNode& node, const vm
     }
 }
 
+#pragma endregion
+
+#pragma region Rendering Resources
+// �� ��� ���ε�, �ؽ�ó �ε�, �ٴ� mesh ����/������ ���ҽ��� �ٷ�� �����Դϴ�.
+
 void Model::uploadBoneMatrices(GLuint shaderProgram) const {
     const int boneCount = static_cast<int>(finalBoneMatrices.size());
     glUniform1i(glGetUniformLocation(shaderProgram, "useSkinning"), boneCount > 0 ? 1 : 0);
@@ -2597,3 +2309,5 @@ void Model::drawFloor(GLuint shaderProgram) {
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
 }
+
+#pragma endregion

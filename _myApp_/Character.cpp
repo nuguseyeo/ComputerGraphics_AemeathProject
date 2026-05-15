@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #pragma region Skill Functions
+// 캐릭터 스킬과 폼 전환처럼 전투 상태를 바꾸는 함수들을 모은 구역입니다.
 
 void Character::doNormalAttack() {
     if (hasEnhancedAttack) {
@@ -69,6 +70,7 @@ void Character::useSkillR() {
 #pragma endregion
 
 #pragma region Movement Functions
+// 이동, 점프, 대쉬, 회전, 물리 갱신처럼 캐릭터 위치/방향을 바꾸는 함수들을 모은 구역입니다.
 
 void Character::move(float dirX, float dirZ, float deltaTime) {
     if (isDashing) return; // 대쉬 중에는 일반 이동 방향 입력을 무시하여 조작감을 높임

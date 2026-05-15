@@ -1,4 +1,4 @@
-#include "AemeathApp.h"
+﻿#include "AemeathApp.h"
 #include "GameConfig.h"
 #include <windows.h> 
 #include <cstdio>
@@ -6,6 +6,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+#pragma region For Debug
+// 런타임 동작 확인과 PMX/본/로그 진단을 위한 디버그 전용 함수 구역입니다.
 
 static std::ofstream gPmxDebugLog;
 
@@ -50,6 +53,11 @@ static void StartPmxDebugLogWindow(const char* exePath) {
     }
 }
 
+#pragma endregion
+
+#pragma region Lifecycle
+// sb7 application 시작/종료 시 리소스와 콘솔 상태를 준비하거나 정리하는 구역입니다.
+
 void AemeathApp::startup() {
     AllocConsole();
     SetConsoleTitleA("Aemeath Combat UI");
@@ -79,6 +87,15 @@ void AemeathApp::startup() {
     humanModel.init("../forModel/Aemeath_HumanForm/Aemeath_source.pmx", "Model_skinning_vs.glsl", "Model_fs.glsl");
     mechaModel.init("../forModel/Aemeath_MechaForm/Aemeath_mecha_source.pmx", "Model_skinning_vs.glsl", "Model_fs.glsl");
 }
+
+void AemeathApp::shutdown() {
+    FreeConsole();
+}
+
+#pragma endregion
+
+#pragma region Frame Loop
+// 한 프레임 안에서 입력 해석, 캐릭터 업데이트, UI 갱신, 렌더링을 순서대로 처리하는 구역입니다.
 
 void AemeathApp::render(double currentTime) {
     // Match the OpenGL viewport to the current window size.
@@ -145,19 +162,25 @@ void AemeathApp::renderScene(double currentTime, float deltaTime, bool hasMoveme
         ? config.sprintAnimationSpeedScale
         : (hasMovementInput ? config.walkAnimationSpeedScale : 0.0f);
     Model& activeModel = (Aemeath.getForm() == MECHA) ? mechaModel : humanModel;
-    activeModel.draw(
-        static_cast<float>(currentTime),
-        deltaTime,
-        aspect,
-        vmath::vec3(Aemeath.getX(), Aemeath.getY(), Aemeath.getZ()),
-        Aemeath.getYawDegrees(),
-        camera.yawDegrees,
-        camera.pitchDegrees,
-        camera.distance,
-        viewMode == CameraViewMode::FirstPerson,
-        hasMovementInput || Aemeath.getIsDashing(),
-        movementSpeedScale);
+    ModelDrawParams params;
+    params.currentTime = static_cast<float>(currentTime);
+    params.deltaTime = deltaTime;
+    params.aspect = aspect;
+    params.characterPosition = vmath::vec3(Aemeath.getX(), Aemeath.getY(), Aemeath.getZ());
+    params.characterYawDegrees = Aemeath.getYawDegrees();
+    params.camera.yawDegrees = camera.yawDegrees;
+    params.camera.pitchDegrees = camera.pitchDegrees;
+    params.camera.distance = camera.distance;
+    params.camera.firstPerson = viewMode == CameraViewMode::FirstPerson;
+    params.hasMovementInput = hasMovementInput || Aemeath.getIsDashing();
+    params.movementSpeedScale = movementSpeedScale;
+    activeModel.draw(params);
 }
+
+#pragma endregion
+
+#pragma region Keyboard Input
+// 키보드 이벤트를 스킬, 대쉬, 카메라 모드, 디버그 명령으로 분기하는 구역입니다.
 
 void AemeathApp::onKey(int key, int action) {
     if (key == GLFW_KEY_LEFT_ALT || key == GLFW_KEY_RIGHT_ALT) {
@@ -199,99 +222,93 @@ void AemeathApp::handleDash() {
     characterController.dash(Aemeath, movement, camera, viewMode);
 }
 
+#pragma endregion
+
+#pragma region For Debug
+// 런타임 동작 확인과 PMX/본/로그 진단을 위한 디버그 전용 함수 구역입니다.
+
 void AemeathApp::handleDebugKey(int key) {
     switch (key) {
     case GLFW_KEY_1:
-        humanModel.adjustShoulderCorrection(-5.0f);
-        mechaModel.adjustShoulderCorrection(-5.0f);
+        applyToBothModels([](Model& model) { model.adjustShoulderCorrection(-5.0f); });
         break;
     case GLFW_KEY_2:
-        humanModel.adjustShoulderCorrection(5.0f);
-        mechaModel.adjustShoulderCorrection(5.0f);
+        applyToBothModels([](Model& model) { model.adjustShoulderCorrection(5.0f); });
         break;
     case GLFW_KEY_3:
-        humanModel.cycleShoulderCorrectionAxis();
-        mechaModel.cycleShoulderCorrectionAxis();
+        applyToBothModels([](Model& model) { model.cycleShoulderCorrectionAxis(); });
         break;
     case GLFW_KEY_4:
-        humanModel.flipLeftShoulderDownSign();
-        mechaModel.flipLeftShoulderDownSign();
+        applyToBothModels([](Model& model) { model.flipLeftShoulderDownSign(); });
         break;
     case GLFW_KEY_5:
-        humanModel.flipRightShoulderDownSign();
-        mechaModel.flipRightShoulderDownSign();
+        applyToBothModels([](Model& model) { model.flipRightShoulderDownSign(); });
         break;
     case GLFW_KEY_6:
-        humanModel.printLocomotionDebug();
-        mechaModel.printLocomotionDebug();
+        applyToBothModels([](Model& model) { model.printLocomotionDebug(); });
         break;
     case GLFW_KEY_7:
-        humanModel.flipShoulderCorrectionSign();
-        mechaModel.flipShoulderCorrectionSign();
+        applyToBothModels([](Model& model) { model.flipShoulderCorrectionSign(); });
         break;
     case GLFW_KEY_F1: {
         static bool bindPose = false;
         bindPose = !bindPose;
-        humanModel.setBindPoseMode(bindPose);
-        mechaModel.setBindPoseMode(bindPose);
+        const bool enabled = bindPose;
+        applyToBothModels([enabled](Model& model) { model.setBindPoseMode(enabled); });
         break;
     }
     case GLFW_KEY_F2: {
         static bool skeletonLines = false;
         skeletonLines = !skeletonLines;
-        humanModel.setSkeletonDebugDraw(skeletonLines);
-        mechaModel.setSkeletonDebugDraw(skeletonLines);
+        const bool enabled = skeletonLines;
+        applyToBothModels([enabled](Model& model) { model.setSkeletonDebugDraw(enabled); });
         break;
     }
     case GLFW_KEY_F3: {
         static bool singleBone = false;
         singleBone = !singleBone;
-        humanModel.setSingleBoneTestMode(singleBone);
-        mechaModel.setSingleBoneTestMode(singleBone);
+        const bool enabled = singleBone;
+        applyToBothModels([enabled](Model& model) { model.setSingleBoneTestMode(enabled); });
         break;
     }
     case GLFW_KEY_F4:
-        humanModel.cycleDebugJointTestMode();
-        mechaModel.cycleDebugJointTestMode();
+        applyToBothModels([](Model& model) { model.cycleDebugJointTestMode(); });
         break;
     case GLFW_KEY_F5:
-        humanModel.cycleElbowBendAxis();
-        mechaModel.cycleElbowBendAxis();
+        applyToBothModels([](Model& model) { model.cycleElbowBendAxis(); });
         break;
     case GLFW_KEY_F6:
-        humanModel.adjustSingleBoneTestAngle(-5.0f);
-        mechaModel.adjustSingleBoneTestAngle(-5.0f);
+        applyToBothModels([](Model& model) { model.adjustSingleBoneTestAngle(-5.0f); });
         break;
     case GLFW_KEY_F7:
-        humanModel.adjustSingleBoneTestAngle(5.0f);
-        mechaModel.adjustSingleBoneTestAngle(5.0f);
+        applyToBothModels([](Model& model) { model.adjustSingleBoneTestAngle(5.0f); });
         break;
     case GLFW_KEY_F8:
-        humanModel.printLocomotionDebug();
-        mechaModel.printLocomotionDebug();
+        applyToBothModels([](Model& model) { model.printLocomotionDebug(); });
         break;
     case GLFW_KEY_F9:
-        humanModel.cycleArmSwingAxis();
-        mechaModel.cycleArmSwingAxis();
+        applyToBothModels([](Model& model) { model.cycleArmSwingAxis(); });
         break;
     case GLFW_KEY_F10:
-        humanModel.cycleLegSwingAxis();
-        mechaModel.cycleLegSwingAxis();
+        applyToBothModels([](Model& model) { model.cycleLegSwingAxis(); });
         break;
     case GLFW_KEY_F11:
-        humanModel.cycleKneeBendAxis();
-        mechaModel.cycleKneeBendAxis();
+        applyToBothModels([](Model& model) { model.cycleKneeBendAxis(); });
         break;
     case GLFW_KEY_F12: {
         const bool enabled = !humanModel.isProceduralLocomotionEnabled();
-        humanModel.setProceduralLocomotionEnabled(enabled);
-        mechaModel.setProceduralLocomotionEnabled(enabled);
+        applyToBothModels([enabled](Model& model) { model.setProceduralLocomotionEnabled(enabled); });
         break;
     }
     default:
         break;
     }
 }
+
+#pragma endregion
+
+#pragma region Mouse Input
+// 마우스 버튼/이동/휠 이벤트를 공격, 커서 잠금, 카메라 조작으로 변환하는 구역입니다.
 
 void AemeathApp::onMouseButton(int button, int action) {
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
@@ -326,6 +343,4 @@ void AemeathApp::onMouseWheel(int pos) {
     camera.applyWheel(pos);
 }
 
-void AemeathApp::shutdown() {
-    FreeConsole();
-}
+#pragma endregion

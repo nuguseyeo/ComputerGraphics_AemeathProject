@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <cmath>
 
+#pragma region Static Helpers
+// 이 cpp 내부에서만 쓰는 보조 함수와 상수를 모은 구역입니다.
+
 namespace {
 constexpr float kDegToRad = 0.0174532925f;
 
@@ -13,6 +16,11 @@ float NormalizeDegrees(float degrees) {
     return degrees;
 }
 }
+
+#pragma endregion
+
+#pragma region Camera Input
+// 마우스 이동/휠 입력을 카메라 yaw, pitch, distance 상태로 반영하는 구역입니다.
 
 ThirdPersonCameraController::ThirdPersonCameraController(const ThirdPersonCameraConfig& config)
     : pitchDegrees(config.initialPitchDegrees)
@@ -46,6 +54,11 @@ void ThirdPersonCameraController::notifyOrbitInput() {
     orbitFollowTimer = config.orbitFollowDuration;
 }
 
+#pragma endregion
+
+#pragma region Camera Direction
+// 카메라 yaw를 기준으로 수평 forward/right 방향을 계산하는 구역입니다.
+
 vmath::vec3 ThirdPersonCameraController::forwardXZ() const {
     const float yawRad = yawDegrees * kDegToRad;
     return vmath::vec3(std::sin(yawRad), 0.0f, -std::cos(yawRad));
@@ -59,3 +72,5 @@ vmath::vec3 ThirdPersonCameraController::rightXZ() const {
 bool ThirdPersonCameraController::isOrbitFollowing() const {
     return orbitFollowTimer > 0.0f;
 }
+
+#pragma endregion
