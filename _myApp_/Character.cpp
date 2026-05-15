@@ -70,7 +70,7 @@ void Character::useSkillR() {
 
 #pragma region Movement Functions
 
-void Character::move(float dirX, float dirZ, double deltaTime) {
+void Character::move(float dirX, float dirZ, float deltaTime) {
     if (isDashing) return; // 대쉬 중에는 일반 이동 방향 입력을 무시하여 조작감을 높임
 
     // 대각선 이동 시 속도가 빨라지는 것을 막기 위한 정규화 (선택적)
@@ -135,7 +135,7 @@ void Character::setYaw(float degrees) {
     }
 }
 
-void Character::rotateToward(float targetDegrees, double deltaTime) {
+void Character::rotateToward(float targetDegrees, float deltaTime) {
     targetDegrees = std::fmod(targetDegrees, 360.0f);
     if (targetDegrees < 0.0f) {
         targetDegrees += 360.0f;
@@ -155,7 +155,7 @@ void Character::rotateToward(float targetDegrees, double deltaTime) {
     setYaw(yawDegrees + delta * blend);
 }
 
-void Character::updatePhysics(double deltaTime) {
+void Character::updatePhysics(float deltaTime) {
     // 1. 대쉬 연산 (매 프레임마다 조금씩 이동)
     if (isDashing) {
         posX += dashDirX * DASH_SPEED * deltaTime;

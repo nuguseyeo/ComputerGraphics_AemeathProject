@@ -21,13 +21,25 @@
     <ClCompile Include="Character.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="CharacterController.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="AemeathApp.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Input.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="UIManager.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="Model.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="ThirdPersonCameraController.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Transform.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
@@ -49,7 +61,16 @@
     <ClInclude Include="Character.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="CharacterController.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="Common.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="GameConfig.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="UIManager.h">
@@ -59,6 +80,12 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="Model.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ThirdPersonCameraController.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Transform.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

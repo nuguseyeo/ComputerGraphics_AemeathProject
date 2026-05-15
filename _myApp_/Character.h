@@ -75,12 +75,12 @@ public:
     void useSkillR();
 
     // 이동 및 물리 로직 함수
-    void move(float dirX, float dirZ, double deltaTime);
+    void move(float dirX, float dirZ, float deltaTime);
     void jump();
     void dash(float dirX, float dirZ);
     void setSprinting(bool state);
     void addYaw(float deltaDegrees);
     void setYaw(float degrees);
-    void rotateToward(float targetDegrees, double deltaTime);
-    void updatePhysics(double deltaTime);
+    void rotateToward(float targetDegrees, float deltaTime);
+    void updatePhysics(float deltaTime);
 };
